@@ -23,26 +23,26 @@
 //   CONFIGURATION VARIABLES                               1819- 2248
 //   OLED DISPLAY                                          2249- 3032
 //   CLOUD PARSING                                         3033- 3047
-//   WIFI SETUP                                            3048- 9681
-//   LITTLEFS                                              9682- 9981
-//   FIREBASE AUTHENTICATION                               9982-11664
-//   WEBSOCKET                                            11665-11691
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 11692-11826
-//   UNIFIED WS FRAME BUILDER                             11827-11951
-//   WEIGHT FILTER HELPERS                                11952-11966
-//   POST-SEND STATE RESET (shared by all send paths)     11967-11987
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 11988-12091
-//   WEB SERVER                                           12092-13186
-//   CLOUD COMMUNICATION                                  13187-13369
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 13370-13877
-//   mDNS                                                 13878-13915
-//   SCALE                                                13916-14086
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  14087-14219
-//   RFID                                                 14220-15302
-//   OTA — Over-the-air firmware + filesystem update    15303-15982
-//   LVGL bridge + main weigh screen                      15983-16946
-//   Remote live view: the screen out, taps back in       16947-17796
-//   SETUP & LOOP                                         17797-19051
+//   WIFI SETUP                                            3048- 9684
+//   LITTLEFS                                              9685- 9984
+//   FIREBASE AUTHENTICATION                               9985-11667
+//   WEBSOCKET                                            11668-11694
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 11695-11829
+//   UNIFIED WS FRAME BUILDER                             11830-11954
+//   WEIGHT FILTER HELPERS                                11955-11969
+//   POST-SEND STATE RESET (shared by all send paths)     11970-11990
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 11991-12094
+//   WEB SERVER                                           12095-13189
+//   CLOUD COMMUNICATION                                  13190-13372
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 13373-13880
+//   mDNS                                                 13881-13918
+//   SCALE                                                13919-14089
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  14090-14222
+//   RFID                                                 14223-15305
+//   OTA — Over-the-air firmware + filesystem update    15306-15985
+//   LVGL bridge + main weigh screen                      15986-16949
+//   Remote live view: the screen out, taps back in       16950-17799
+//   SETUP & LOOP                                         17800-19054
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -8872,10 +8872,10 @@ struct LauncherTool {
 };
 static const LauncherTool kLauncherTools[] = {
     { "Tiger Scale", I18N_COUNT,        I18N_TOOL_TIGERSCALE_SUB, LV_SYMBOL_REFRESH,  0x2F7FFF, nullptr },
+    { "TigerPOD",    I18N_COUNT,        I18N_TOOL_POD_SUB,        LV_SYMBOL_EDIT,     0xF5A623, runTigerPod },
     { nullptr,       I18N_TOOL_PARCEL,  I18N_TOOL_PARCEL_SUB,     LV_SYMBOL_DOWNLOAD, 0xE8821E, runParcelScale },
     { nullptr,       I18N_TOOL_CALTEST, I18N_TOOL_CALTEST_SUB,    LV_SYMBOL_SETTINGS, 0x3BA55D, runLoadCellTest },
     { nullptr,       I18N_TOOL_PRESSE,  I18N_TOOL_PRESSE_SUB,     LV_SYMBOL_CHARGE,   0xE24B4A, runPresseMemo },
-    { "TigerPOD",    I18N_COUNT,        I18N_TOOL_POD_SUB,        LV_SYMBOL_EDIT,     0xF5A623, runTigerPod },
 };
 static const int kLauncherToolCount = sizeof(kLauncherTools) / sizeof(kLauncherTools[0]);
 
@@ -8920,11 +8920,12 @@ static void runLauncher() {
 
         lv_obj_t *list = lv_obj_create(scr);
         lv_obj_remove_style_all(list);
-        lv_obj_set_size(list, 480, 320 - 49);
+        lv_obj_set_size(list, 428, 320 - 49);   // 428: clears the scroll rail
         lv_obj_set_pos(list, 0, 49);
         lv_obj_set_style_pad_top(list, 8, 0);
         lv_obj_set_style_pad_bottom(list, 8, 0);
-        lv_obj_set_style_pad_hor(list, 10, 0);
+        lv_obj_set_style_pad_left(list, 10, 0);
+        lv_obj_set_style_pad_right(list, 6, 0);
         lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_style_pad_row(list, 8, 0);
         lv_obj_set_scroll_dir(list, LV_DIR_VER);
@@ -8960,7 +8961,7 @@ static void runLauncher() {
             lv_obj_set_style_text_color(sub, LVCOL_MUTED, 0);
             lv_obj_set_style_text_font(sub, &gFont14, 0);
             lv_label_set_long_mode(sub, LV_LABEL_LONG_DOT);
-            lv_obj_set_width(sub, 330);
+            lv_obj_set_width(sub, 290);
             lv_obj_set_pos(sub, 66, 44);
 
             lv_obj_t *chev = lv_label_create(row);
@@ -8969,6 +8970,8 @@ static void runLauncher() {
             lv_obj_set_style_text_font(chev, &lv_font_montserrat_28, 0);
             lv_obj_align(chev, LV_ALIGN_RIGHT_MID, -12, 0);
         }
+        // Rows exist now, so the rail paints its end states from the real list.
+        lvglAddScrollRail(scr, list, 57, 312, 2 * (76 + 8));
 
         lv_scr_load(scr);
         if (prevScr) { lv_obj_del(prevScr); prevScr = nullptr; }

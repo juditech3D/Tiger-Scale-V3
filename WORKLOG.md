@@ -28,6 +28,8 @@ log lives in git history and the synthesised entry lives in the changelog.
 
 ### Changed
 
+- Start menu: TigerPOD sits second, under Tiger Scale, and the list gets the page-up / page-down rail at the right edge used by the other scrollable screens (`TigerTagSplashESP32/TigerTagSplashESP32.ino`).
+
 - The share picture is tigersystem.io's TigerScale card (`https://tigersystem.io/en/tigerscale/opengraph-image`), the same as the Hub's own page, instead of the site's own `og.jpg` (`web-installer/index.html`).
 - The docs no longer say the scale is usable without an account: the weigh workflow only starts with a linked TigerSystem account (`IDLE→SCANNING` requires `firebaseAuth`), so the README feature list, `docs/CLOUD.md` ("An account is required to weigh") and `docs/MAKERWORLD.md` say so; the local brand / material lookups stay described (`README.md`, `docs/CLOUD.md`, `docs/MAKERWORLD.md`).
 
