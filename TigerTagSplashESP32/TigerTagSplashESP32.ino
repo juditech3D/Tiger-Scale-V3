@@ -15,34 +15,34 @@
 //
 //   TABLE OF CONTENTS                                     line range
 //   ---------------------------------------------------- -----------
-//   HARDWARE CONFIGURATION                                 260-  453
-//   OTA CONFIGURATION                                      454-  486
-//   FORWARD DECLARATIONS                                   487-  797
-//   WEIGHT ROUNDING                                        798-  830
-//   GLOBAL OBJECTS                                         831- 1756
-//   CONFIGURATION VARIABLES                               1757- 2186
-//   OLED DISPLAY                                          2187- 2964
-//   CLOUD PARSING                                         2965- 2979
-//   WIFI SETUP                                            2980- 9066
-//   LITTLEFS                                              9067- 9366
-//   FIREBASE AUTHENTICATION                               9367-11049
-//   WEBSOCKET                                            11050-11076
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 11077-11211
-//   UNIFIED WS FRAME BUILDER                             11212-11336
-//   WEIGHT FILTER HELPERS                                11337-11351
-//   POST-SEND STATE RESET (shared by all send paths)     11352-11372
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 11373-11476
-//   WEB SERVER                                           11477-12566
-//   CLOUD COMMUNICATION                                  12567-12749
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 12750-13257
-//   mDNS                                                 13258-13295
-//   SCALE                                                13296-13466
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  13467-13599
-//   RFID                                                 13600-14682
-//   OTA — Over-the-air firmware + filesystem update    14683-15362
-//   LVGL bridge + main weigh screen                      15363-16302
-//   Remote live view: the screen out, taps back in       16303-17152
-//   SETUP & LOOP                                         17153-18407
+//   HARDWARE CONFIGURATION                                 265-  458
+//   OTA CONFIGURATION                                      459-  491
+//   FORWARD DECLARATIONS                                   492-  802
+//   WEIGHT ROUNDING                                        803-  835
+//   GLOBAL OBJECTS                                         836- 1818
+//   CONFIGURATION VARIABLES                               1819- 2248
+//   OLED DISPLAY                                          2249- 3032
+//   CLOUD PARSING                                         3033- 3047
+//   WIFI SETUP                                            3048- 9681
+//   LITTLEFS                                              9682- 9981
+//   FIREBASE AUTHENTICATION                               9982-11664
+//   WEBSOCKET                                            11665-11691
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 11692-11826
+//   UNIFIED WS FRAME BUILDER                             11827-11951
+//   WEIGHT FILTER HELPERS                                11952-11966
+//   POST-SEND STATE RESET (shared by all send paths)     11967-11987
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 11988-12091
+//   WEB SERVER                                           12092-13186
+//   CLOUD COMMUNICATION                                  13187-13369
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 13370-13877
+//   mDNS                                                 13878-13915
+//   SCALE                                                13916-14086
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  14087-14219
+//   RFID                                                 14220-15302
+//   OTA — Over-the-air firmware + filesystem update    15303-15982
+//   LVGL bridge + main weigh screen                      15983-16946
+//   Remote live view: the screen out, taps back in       16947-17796
+//   SETUP & LOOP                                         17797-19051
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -113,6 +113,11 @@ struct MetadataCache { String mfr; String mat; String col; uint32_t productId; }
 #include "live_page.h"            // the live view's browser page — see §LIVE
 #include "screen_page.h"          // the /screen page — same reason it is a header
 #include "presse_page.h"          // the heat press memo editor (/presse) — same reason
+#include "presse_icons.h"         // its product thumbnails (scripts/make-presse-icons.py)
+#include "pod_reader.h"           // TigerPOD tool (§9): one reader as Studio sees it
+#include <mutex>                  // TigerPOD tool (§9): its socket queue
+#include <deque>
+#include <map>
 
 // Declared immediately after the includes on purpose: the .ino preprocessor
 // inserts every generated function prototype right here, so a type used in a
@@ -1466,6 +1471,24 @@ public:
         return true;
     }
 
+    // Four NTAG pages in ONE command: the tag's READ (0x30) returns 16 bytes,
+    // where mifareultralight_ReadPage() keeps 4 of them and readPages16() pays
+    // four round trips. The TigerPOD tool reads whole chips with it (§9).
+    bool readBlock16(uint8_t page, uint8_t *out16) {
+        uint8_t cmd[2] = { 0x30, page };
+        uint8_t resp[32]; uint8_t len = sizeof(resp);
+        if (!_pn532.inDataExchange(cmd, 2, resp, &len) || len < 16) return false;
+        memcpy(out16, resp, 16);
+        return true;
+    }
+
+    // One NTAG page (4 bytes, WRITE 0xA2) on the card selected by the last
+    // isNewCardPresent(). Only the TigerPOD tool writes (§9).
+    bool writePage(uint8_t page, const uint8_t *data4) {
+        uint8_t d[4]; memcpy(d, data4, 4);
+        return _pn532.ntag2xx_WritePage(page, d) != 0;
+    }
+
 private:
     Adafruit_PN532 _pn532;
     HardwareSerial &_serial;
@@ -1603,6 +1626,26 @@ public:
         return true;
     }
 
+    // Four NTAG pages in ONE command: the tag's READ (0x30) returns 16 bytes,
+    // where mifareultralight_ReadPage() keeps 4 of them and readPages16() pays
+    // four round trips. The TigerPOD tool reads whole chips with it (§9).
+    bool readBlock16(uint8_t page, uint8_t *out16) {
+        if (!_isPrimary) return false;
+        uint8_t cmd[2] = { 0x30, page };
+        uint8_t resp[32]; uint8_t len = sizeof(resp);
+        if (!_pn532.inDataExchange(cmd, 2, resp, &len) || len < 16) return false;
+        memcpy(out16, resp, 16);
+        return true;
+    }
+
+    // One NTAG page (4 bytes, WRITE 0xA2) on the card selected by the last
+    // isNewCardPresent(). Only the TigerPOD tool writes (§9).
+    bool writePage(uint8_t page, const uint8_t *data4) {
+        if (!_isPrimary) return false;
+        uint8_t d[4]; memcpy(d, data4, 4);
+        return _pn532.ntag2xx_WritePage(page, d) != 0;
+    }
+
 private:
     Adafruit_PN532 _pn532;
     bool _isPrimary;
@@ -1735,6 +1778,24 @@ public:
         return true;
     }
 
+    // Four NTAG pages in ONE command: the tag's READ (0x30) returns 16 bytes,
+    // where mifareultralight_ReadPage() keeps 4 of them and readPages16() pays
+    // four round trips. The TigerPOD tool reads whole chips with it (§9).
+    bool readBlock16(uint8_t page, uint8_t *out16) {
+        uint8_t cmd[2] = { 0x30, page };
+        uint8_t resp[32]; uint8_t len = sizeof(resp);
+        if (!_pn532.inDataExchange(cmd, 2, resp, &len) || len < 16) return false;
+        memcpy(out16, resp, 16);
+        return true;
+    }
+
+    // One NTAG page (4 bytes, WRITE 0xA2) on the card selected by the last
+    // isNewCardPresent(). Only the TigerPOD tool writes (§9).
+    bool writePage(uint8_t page, const uint8_t *data4) {
+        uint8_t d[4]; memcpy(d, data4, 4);
+        return _pn532.ntag2xx_WritePage(page, d) != 0;
+    }
+
 private:
     Adafruit_PN532 _pn532;
     uint8_t _ssPin;
@@ -1749,6 +1810,7 @@ PN532Reader rfid2(PN532_2_SS);
 Servo spoolServo;
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
+AsyncWebSocket podWs("/pod");   // TigerPOD tool (§9): Tiger Studio drives the readers
 Preferences prefs;
 bool gDisplayReady = false;
 static bool gUseLvglMainScreen = true;  // LVGL main-screen migration (2026-07-28); flip to false to revert to raw gfx drawing
@@ -2203,9 +2265,15 @@ static void tcaWriteReg(TwoWire &bus, uint8_t reg, uint8_t v) {
 // does not exist on the ESP32-S3 — so this was a no-op for as long as it has
 // existed. The schematics put the expander on the shared I2C bus with the touch
 // controller, the PMIC and the codec, which is `Wire1` (GPIO8/7) at 0x20.
+//
+// The same call switches the speaker on. The -3.5's NS4150B amplifier is
+// enabled by PA_CTRL, which the schematic (Rev 2.0) routes to EXIO7 = P7, held
+// low by a 10 k pull-down: as an input, P7 left the amplifier off, so the codec
+// played into a silent speaker and no beep was ever heard on this board. P7 is
+// made an output here and stays high in every write below.
 static void lcdResetByTCA9554(TwoWire &bus) {
     // Register 3 configures direction, 0 = output; register 1 drives the pins.
-    tcaWriteReg(bus, 0x03, 0xFD);        // pin 1 = output, others = input
+    tcaWriteReg(bus, 0x03, 0x7D);        // pin 1 (LCD_RST) and pin 7 (PA_CTRL) = output
     tcaWriteReg(bus, 0x01, 0xFF); delay(10);   // pin 1 HIGH
     tcaWriteReg(bus, 0x01, 0xFD); delay(10);   // pin 1 LOW (LCD reset assert)
     tcaWriteReg(bus, 0x01, 0xFF); delay(200);  // pin 1 HIGH (LCD reset release)
@@ -7826,6 +7894,83 @@ static lv_color_t presseColor(const char *hex) {
     return lv_color_hex(strtoul(hex + 1, nullptr, 16));
 }
 
+// True when `word` starts a word of `text` (ASCII case-insensitive): "tasse"
+// finds "Tasses blanches" but "alu" does not find "valeur".
+static bool presseHasWord(const char *text, const char *word) {
+    size_t n = strlen(word);
+    for (const char *p = text; *p; p++) {
+        if (p != text && isalnum((unsigned char)p[-1])) continue;
+        if (strncasecmp(p, word, n) == 0) return true;
+    }
+    return false;
+}
+
+// The thumbnail of an item or a category (presse_icons.h). "icon" in the list
+// names one ("mug", "tshirt"...), "none" asks for none, and when it is absent
+// the name decides -- so the factory list and a list written before icons
+// existed get theirs without an edit. The specific objects are tried before
+// the fabrics, which all fall back to the T-shirt.
+static const lv_img_dsc_t* presseIcon(const char *icon, const char *name) {
+    if (icon && icon[0]) {
+        for (int i = 0; i < PRESSE_ICON_COUNT; i++)
+            if (strcmp(icon, PRESSE_ICONS[i].id) == 0) return PRESSE_ICONS[i].img;
+        return nullptr;                         // "none", or an id this build lacks
+    }
+    if (!name || !name[0]) return nullptr;
+    static const struct { const char *id; const char *words[13]; } kGuess[] = {
+        { "mug",      { "mug", "tasse", "cup", nullptr } },
+        { "hoodie",   { "hoodie", "sweat", "pull", "jumper", nullptr } },
+        { "cap",      { "casquette", "baseball", nullptr } },
+        { "bag",      { "sac", "tote", "bag", nullptr } },
+        { "mousepad", { "souris", "mouse", nullptr } },
+        { "cushion",  { "coussin", "taie", "cushion", "pillow", nullptr } },
+        { "plate",    { "plaque", "alu", "mdf", "panel", "panneau", "ardoise", "slate", "plate", nullptr } },
+        { "bottle",   { "gourde", "bouteille", "bottle", "thermos", nullptr } },
+        { "phone",    { "coque", "phone", nullptr } },
+        { "tshirt",   { "t-shirt", "tshirt", "tee", "shirt", "polo", "coton", "cotton", "polyester",
+                        "textile", "tissu", "fabric", nullptr } },
+    };
+    for (const auto &g : kGuess)
+        for (int w = 0; g.words[w]; w++)
+            if (presseHasWord(name, g.words[w])) return presseIcon(g.id, nullptr);
+    return nullptr;
+}
+
+static lv_obj_t* presseAddIcon(lv_obj_t *parent, const lv_img_dsc_t *img, lv_color_t col) {
+    lv_obj_t *im = lv_img_create(parent);
+    lv_img_set_src(im, img);
+    lv_obj_set_style_img_recolor(im, col, 0);
+    lv_obj_set_style_img_recolor_opa(im, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(im, LV_OBJ_FLAG_CLICKABLE);
+    return im;
+}
+
+// Two columns that fill the page: each row shares the height `availH` (at
+// least minH, at most maxH -- past that the list scrolls), and an odd last
+// tile spans both columns. `slot` keeps the descriptor of one screen alive
+// while the next one is built over it.
+static void presseGrid(lv_obj_t *list, int slot, int n, int availH, int minH, int maxH) {
+    static lv_coord_t cols[] = { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
+    static lv_coord_t rows[2][129];
+    const int GAP = 10;
+    int nRows = (n + 1) / 2;
+    if (nRows > 128) nRows = 128;
+    int h = nRows ? (availH - (nRows - 1) * GAP) / nRows : minH;
+    h = constrain(h, minH, maxH);
+    for (int r = 0; r < nRows; r++) rows[slot][r] = h;
+    rows[slot][nRows] = LV_GRID_TEMPLATE_LAST;
+    lv_obj_set_layout(list, LV_LAYOUT_GRID);
+    lv_obj_set_grid_dsc_array(list, cols, rows[slot]);
+    lv_obj_set_style_pad_row(list, GAP, 0);
+    lv_obj_set_style_pad_column(list, GAP, 0);
+    for (int i = 0; i < n && i / 2 < nRows; i++) {
+        lv_obj_t *child = lv_obj_get_child(list, i);
+        bool lastOdd = (i == n - 1) && (n % 2 == 1);
+        lv_obj_set_grid_cell(child, LV_GRID_ALIGN_STRETCH, i % 2, lastOdd ? 2 : 1,
+                             LV_GRID_ALIGN_STRETCH, i / 2, 1);
+    }
+}
+
 // The address the list is edited at, or "" with no WiFi.
 static String presseEditUrl() {
     if (!WiFi.isConnected()) return String("");
@@ -7919,45 +8064,55 @@ static void runPresseMemo(lv_obj_t *backTo) {
             lvglAddHeader(scr, t(I18N_TOOL_PRESSE), cb, nullptr, (intptr_t)PM_BACK);
             bool defaults = doc["settings"]["defaults"] | false;
             String url = presseEditUrl();
-            int footer = (defaults ? 1 : 0) + (url.length() ? 1 : 0);
+            // Footer under the tiles: the indicative-values note, on two lines
+            // so the whole sentence shows in every language, then the editor's
+            // address on one.
+            const int NOTE_H = 38, URL_H = 20;
+            int footer = (defaults ? NOTE_H : 0) + (url.length() ? URL_H : 0);
             if (cats.size() == 0) {
                 presseEmptyNote(scr);
             } else {
-                lv_obj_t *list = presseList(scr, 320 - footer * 20 - (footer ? 6 : 0));
-                lv_obj_set_flex_flow(list, LV_FLEX_FLOW_ROW_WRAP);
+                int bottom = 320 - footer - (footer ? 6 : 0);
+                lv_obj_t *list = presseList(scr, bottom);
                 int i = 0;
                 for (JsonObject k : cats) {
                     lv_obj_t *tile = lv_btn_create(list);
-                    lv_obj_set_size(tile, 225, 70);
                     lv_color_t col = presseColor(k["color"] | "#555555");
                     lv_obj_set_style_bg_color(tile, col, 0);
                     lv_obj_set_style_border_width(tile, 0, 0);
                     lv_obj_set_style_radius(tile, 12, 0);
                     lv_obj_set_style_shadow_width(tile, 0, 0);
+                    lv_obj_set_style_pad_all(tile, 6, 0);
+                    lv_obj_clear_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
+                    lv_obj_set_flex_flow(tile, LV_FLEX_FLOW_COLUMN);
+                    lv_obj_set_flex_align(tile, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+                    lv_obj_set_style_pad_row(tile, 4, 0);
                     lv_obj_set_user_data(tile, (void *)(intptr_t)(100 + i));
                     lv_obj_add_event_cb(tile, cb, LV_EVENT_CLICKED, nullptr);
-                    lv_obj_t *l = lv_label_create(tile);
                     const char *catName = k["name"] | "-";   // owner data, not UI text
+                    const lv_img_dsc_t *ic = presseIcon(k["icon"] | "", catName);
+                    if (ic) presseAddIcon(tile, ic, LVCOL_TEXT);
+                    lv_obj_t *l = lv_label_create(tile);
                     lv_label_set_text(l, catName);
                     lv_obj_set_style_text_color(l, LVCOL_TEXT, 0);
                     lv_obj_set_style_text_font(l, &gFont20, 0);
                     lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
-                    lv_obj_set_width(l, 205);
+                    lv_obj_set_width(l, LV_PCT(100));
                     lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
-                    lv_obj_center(l);
                     i++;
                 }
-                int y = 320 - footer * 20 - 4;
+                presseGrid(list, 0, i, bottom - 49 - 16, 64, 120);
+                int y = 320 - footer - 2;
                 if (defaults) {
                     lv_obj_t *n = lv_label_create(scr);
                     lv_label_set_text(n, t(I18N_PR_INDICATIVE));
                     lv_obj_set_style_text_color(n, LVCOL_YELLOW, 0);
                     lv_obj_set_style_text_font(n, &gFont14, 0);
-                    lv_label_set_long_mode(n, LV_LABEL_LONG_DOT);
-                    lv_obj_set_width(n, 460);
+                    lv_label_set_long_mode(n, LV_LABEL_LONG_WRAP);
+                    lv_obj_set_size(n, 460, NOTE_H);
                     lv_obj_set_style_text_align(n, LV_TEXT_ALIGN_CENTER, 0);
                     lv_obj_set_pos(n, 10, y);
-                    y += 20;
+                    y += NOTE_H;
                 }
                 if (url.length()) {
                     lv_obj_t *u = lv_label_create(scr);
@@ -7975,48 +8130,65 @@ static void runPresseMemo(lv_obj_t *backTo) {
                 presseEmptyNote(scr);
             } else {
                 lv_obj_t *list = presseList(scr, 320);
-                lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
                 lv_color_t accent = presseColor(c["color"] | "#555555");
                 int i = 0;
                 for (JsonObject it : items) {
+                    // A card in two columns: the category's colour as the left
+                    // edge (the tile you came from), the thumbnail tinted with
+                    // it, then the name over temperature and time.
                     lv_obj_t *row = lv_btn_create(list);
-                    lv_obj_set_size(row, LV_PCT(100), 56);
                     lv_obj_set_style_bg_color(row, LVCOL_CARD, 0);
-                    lv_obj_set_style_border_color(row, LVCOL_BORDER, 0);
-                    lv_obj_set_style_border_width(row, 1, 0);
+                    lv_obj_set_style_border_color(row, accent, 0);
+                    lv_obj_set_style_border_width(row, 6, 0);
+                    lv_obj_set_style_border_side(row, LV_BORDER_SIDE_LEFT, 0);
                     lv_obj_set_style_radius(row, 10, 0);
                     lv_obj_set_style_shadow_width(row, 0, 0);
-                    lv_obj_set_style_pad_all(row, 0, 0);
+                    lv_obj_set_style_pad_left(row, 10, 0);
+                    lv_obj_set_style_pad_right(row, 6, 0);
+                    lv_obj_set_style_pad_ver(row, 4, 0);
+                    lv_obj_set_style_pad_column(row, 8, 0);
+                    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+                    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+                    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
                     lv_obj_set_user_data(row, (void *)(intptr_t)(100 + i));
                     lv_obj_add_event_cb(row, cb, LV_EVENT_CLICKED, nullptr);
-                    // The category's colour as a stripe: the tile you came from.
-                    lv_obj_t *stripe = lv_obj_create(row);
-                    lv_obj_remove_style_all(stripe);
-                    lv_obj_set_size(stripe, 6, 56);
-                    lv_obj_set_style_bg_color(stripe, accent, 0);
-                    lv_obj_set_style_bg_opa(stripe, LV_OPA_COVER, 0);
-                    lv_obj_clear_flag(stripe, LV_OBJ_FLAG_CLICKABLE);
-                    lv_obj_t *n = lv_label_create(row);
                     const char *itemName = it["name"] | "-";  // owner data, not UI text
+                    const lv_img_dsc_t *ic = presseIcon(it["icon"] | "", itemName);
+                    if (ic) presseAddIcon(row, ic, accent);
+                    lv_obj_t *txt = lv_obj_create(row);
+                    lv_obj_remove_style_all(txt);
+                    lv_obj_set_height(txt, LV_SIZE_CONTENT);
+                    lv_obj_set_flex_grow(txt, 1);
+                    lv_obj_set_flex_flow(txt, LV_FLEX_FLOW_COLUMN);
+                    lv_obj_set_style_pad_row(txt, 2, 0);
+                    lv_obj_clear_flag(txt, LV_OBJ_FLAG_CLICKABLE);
+                    lv_obj_clear_flag(txt, LV_OBJ_FLAG_SCROLLABLE);
+                    lv_obj_t *n = lv_label_create(txt);
                     lv_label_set_text(n, itemName);
                     lv_obj_set_style_text_color(n, LVCOL_TEXT, 0);
                     lv_obj_set_style_text_font(n, &gFont16, 0);
                     lv_label_set_long_mode(n, LV_LABEL_LONG_DOT);
-                    lv_obj_set_width(n, 260);
-                    lv_obj_align(n, LV_ALIGN_LEFT_MID, 20, 0);
+                    lv_obj_set_width(n, LV_PCT(100));
                     char buf[40];
                     snprintf(buf, sizeof buf, "%d °C  ·  %d s", (int)(it["temp"] | 0), (int)(it["time"] | 0));
-                    lv_obj_t *v = lv_label_create(row);
+                    lv_obj_t *v = lv_label_create(txt);
                     lv_label_set_text(v, buf);
                     lv_obj_set_style_text_color(v, LVCOL_YELLOW, 0);
                     lv_obj_set_style_text_font(v, &gFont16, 0);
-                    lv_obj_align(v, LV_ALIGN_RIGHT_MID, -14, 0);
                     i++;
                 }
+                presseGrid(list, 1, i, 320 - 49 - 16, 64, 110);
             }
         } else {
             JsonObject it = items[item].as<JsonObject>();
             lvglAddHeader(scr, it["name"] | "-", cb, nullptr, (intptr_t)PM_BACK);
+            const lv_img_dsc_t *ic = presseIcon(it["icon"] | "", it["name"] | "");
+            if (ic) {
+                // In the header band's right end: the band is all "back", the
+                // thumbnail is not clickable, so a touch on it still goes back.
+                lv_obj_t *im = presseAddIcon(scr, ic, presseColor(c["color"] | "#555555"));
+                lv_obj_align(im, LV_ALIGN_TOP_RIGHT, -12, 2);
+            }
             presetTime = constrain((int)(it["time"] | 0), 0, 999);
             int temp = constrain((int)(it["temp"] | 0), 0, 250);
             peel = it["peel"] | "";
@@ -8119,7 +8291,19 @@ static void runPresseMemo(lv_obj_t *backTo) {
         uint32_t t0 = 0, durMs = (uint32_t)presetTime * 1000UL, lastUi = 0;
         int shownSec = presetTime;
         lv_obj_t *alert = nullptr, *alertCard = nullptr;
+        uint32_t alarmMs = 0;                   // last time the end alarm sounded
         bool rebuild = false;
+
+        // The end alarm: a falling-rising two-tone, three times -- distinct
+        // from the click of a button and from the 3-2-1 pips. It repeats
+        // every PRESSE_ALARM_EVERY_MS until the alert is touched, for at most
+        // PRESSE_ALARM_FOR_MS: a press left unattended should be heard from
+        // across the room, not beep forever.
+        const uint32_t PRESSE_ALARM_EVERY_MS = 5000, PRESSE_ALARM_FOR_MS = 60000;
+        auto soundAlarm = [&]() {
+            for (int r = 0; r < 3; r++) { playBeeps(2600, 160, 1); playBeeps(1950, 160, 1); }
+            alarmMs = millis();
+        };
 
         auto setTime = [&](int secs, lv_color_t col) {
             char b[12]; snprintf(b, sizeof b, "%d", secs);
@@ -8227,8 +8411,8 @@ static void runPresseMemo(lv_obj_t *backTo) {
 
                         lv_obj_set_style_bg_color(startBtn, LVCOL_ORANGE, 0);
                         lv_label_set_text(startLbl, t(I18N_PR_TOUCH_RESET));
-                        lv_timer_handler();               // show it before the beeps block
-                        playBeeps(2600, 180, 3);
+                        lv_timer_handler();               // show it before the alarm blocks
+                        soundAlarm();
                     } else {
                         int remain = (int)((durMs - el + 999) / 1000);
                         if (remain != shownSec) {
@@ -8242,10 +8426,440 @@ static void runPresseMemo(lv_obj_t *backTo) {
                     // Blink until touched.
                     bool on = (el / 500) % 2 == 0;
                     lv_obj_set_style_bg_color(alertCard, on ? LVCOL_ORANGE : LVCOL_RED, 0);
+                    if (millis() - alarmMs >= PRESSE_ALARM_EVERY_MS && el - durMs < PRESSE_ALARM_FOR_MS) {
+                        lv_timer_handler();
+                        soundAlarm();
+                    }
                 }
             }
         }
     }
+}
+
+// TigerPOD: the scale's two readers lent to Tiger Studio, the way a TigerPOD
+// (a USB NFC reader on the computer) is. Studio already does everything a
+// TigerPOD is for -- open the spool of a chip put down, write a blank chip,
+// turn a TigerTag into a TigerTag+, restore, erase -- through a handful of
+// messages to its reader process (services/nfc-process.js in Studio). This
+// tool speaks those same messages over a WebSocket, so Studio treats each
+// reader of the scale as one more reader and none of its features change.
+//
+//   ws://<scale>/pod?c=<LAN access code>
+//   scale  -> Studio  {"type":"reader-connected","reader":"1"}
+//                     {"type":"card","reader":"1","uid":"04A1..","atr":"3b8f..",
+//                      "rawPagesHex":"<pages 4-39>"|null}
+//                     {"type":"card-removed","reader":"1"}
+//                     {"type":"read-result","id":7,"ok":true,"rawPagesHex":".."}
+//                     {"type":"write-result","id":8,"ok":true,"pagesWritten":12,
+//                      "verified":true,"mismatchPages":[]}
+//   Studio -> scale   {"type":"read-now","reader":"1","id":7,"start":4,"length":144}
+//                     {"type":"write-now","reader":"1","id":8,"verify":true,
+//                      "pages":[{"index":4,"hexData":"01020304"},..]}
+//
+// Who may write a chip: someone with the LAN access code (the same code the
+// live view takes, published only to the account the scale is linked to), and
+// only while this tool is open on the scale's own screen. Closed, the socket
+// refuses every handshake and drops the clients it had. Pages 0-3 (UID, lock
+// bits, capability container) are never written: the lock bits are one-way,
+// and Studio has no reason to touch them.
+//
+// The socket's handler runs on the async server's task and never touches a
+// reader: it queues the text, and the tool's own loop -- the only code driving
+// the PN532s while it is open, since loop() is blocked behind it -- does the
+// work and answers. The weigh workflow's RFID polling is paused meanwhile.
+
+#define POD_MAX_MSG    16384
+#define POD_POLL_MS    150      // one reader polled per tick, alternating
+#define POD_GONE_MISSES 3       // polls in a row without the chip = removed
+
+static volatile bool gPodOpen = false;
+static std::mutex gPodLock;
+struct PodInMsg { uint32_t client; String text; };
+static std::deque<PodInMsg> gPodInbox;              // guarded by gPodLock
+static std::map<uint32_t, String> gPodPartial;      // guarded by gPodLock
+
+static bool podHandshake(AsyncWebServerRequest *request) {
+    if (!gPodOpen || gLanAccessCode.length() != 6) return false;
+    const AsyncWebParameter *c = request->getParam("c");
+    return c && c->value() == gLanAccessCode;
+}
+
+static void onPodWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
+                         AwsEventType type, void *arg, uint8_t *data, size_t len) {
+    (void)server;
+    std::lock_guard<std::mutex> guard(gPodLock);
+    if (type == WS_EVT_CONNECT) {
+        gPodInbox.push_back({ client->id(), String("{\"type\":\"hello\"}") });
+        return;
+    }
+    if (type == WS_EVT_DISCONNECT) { gPodPartial.erase(client->id()); return; }
+    if (type != WS_EVT_DATA) return;
+    // A message can come in several TCP-sized pieces: put it back together.
+    AwsFrameInfo *info = (AwsFrameInfo *)arg;
+    if (info->opcode != WS_TEXT || info->len > POD_MAX_MSG) return;
+    String &buf = gPodPartial[client->id()];
+    if (info->index == 0) { buf = ""; buf.reserve(info->len); }
+    buf.concat((const char *)data, len);
+    if (info->final && info->index + len == info->len) {
+        if (gPodInbox.size() < 16) gPodInbox.push_back({ client->id(), buf });
+        buf = "";
+    }
+}
+
+// PodReader (one reader as Studio sees it) is in pod_reader.h: the .ino
+// converter puts prototypes taking it above every line of this file.
+
+static String podHex(const uint8_t *b, size_t n) {
+    static const char H[] = "0123456789abcdef";
+    String s; s.reserve(n * 2);
+    for (size_t i = 0; i < n; i++) { s += H[b[i] >> 4]; s += H[b[i] & 15]; }
+    return s;
+}
+
+static int podNib(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+// The PC/SC ATR an ACR122U reports, which Studio reads the chip family from:
+// a 7-byte UID is an NTAG / Ultralight, a 4-byte one a MIFARE Classic 1K.
+static const char *podAtr(uint8_t uidLen) {
+    return uidLen == 7 ? "3b8f8001804f0ca0000003060300030000000068"
+                       : "3b8f8001804f0ca000000306030001000000006a";
+}
+
+// Selects the chip again (a poll of the other reader may have come between)
+// and checks it is still the one Studio was told about.
+static bool podSelect(PodReader &p) {
+    for (int attempt = 0; attempt < 3; attempt++) {
+        if (p.r->isNewCardPresent() && p.r->readCardSerial()
+            && p.r->uid.size == p.uidLen && memcmp(p.r->uid.uidByte, p.uid, p.uidLen) == 0) return true;
+        delay(20);
+    }
+    return false;
+}
+
+// `length` bytes from `startPage`, read 16 bytes (4 pages) at a time.
+static bool podReadPages(PodReader &p, uint8_t startPage, size_t length, uint8_t *out) {
+    uint8_t blk[16];
+    for (size_t off = 0; off < length; off += 16) {
+        bool ok = false;
+        for (int attempt = 0; attempt < 3 && !ok; attempt++) {
+            uint8_t page = (uint8_t)(startPage + off / 4);
+            ok = p.r->readBlock16(page, blk) || p.r->readPages16(page, blk);
+            if (!ok) delay(attempt ? 40 : 10);
+        }
+        if (!ok) return false;
+        memcpy(out + off, blk, min((size_t)16, length - off));
+    }
+    return true;
+}
+
+static void runTigerPod(lv_obj_t *backTo) {
+    enum { POD_NONE, POD_BACK };
+    static int sAct;
+    auto cb = [](lv_event_t *e) { sAct = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e)); };
+    sAct = POD_NONE;
+
+    // Studio finds the scale through the account; the socket lives on the
+    // async server, which loop() may not have started yet this early.
+    if (ENABLE_HTTP_SERVER && gWebServerStartPending && !gWebServerStarted && !gWebServerStarting) {
+        gWebServerStarting = true;
+        startWebServerNow();
+    }
+
+    PodReader readers[2] = {
+        { &rfid1, "1", false, {0}, 0, 0, "" },
+        { &rfid2, "2", false, {0}, 0, 0, "" },
+    };
+
+    lv_obj_t *scr = lv_obj_create(nullptr);
+    lv_obj_set_style_bg_color(scr, LVCOL_BG, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    const char *podName = "TigerPOD";            // the product's name, not UI text
+    lvglAddHeader(scr, podName, cb, nullptr, (intptr_t)POD_BACK);
+
+    // Studio's state, a big dot and a line.
+    lv_obj_t *status = lv_label_create(scr);
+    lv_obj_set_style_text_font(status, &gFont20, 0);
+    lv_obj_set_width(status, 460);
+    lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(status, 10, 62);
+
+    // One card per reader, side by side.
+    lv_obj_t *uidLbl[2], *card[2];
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t *c = lv_obj_create(scr);
+        lv_obj_remove_style_all(c);
+        lv_obj_set_size(c, 225, 120);
+        lv_obj_set_pos(c, 10 + i * 235, 100);
+        lv_obj_set_style_bg_color(c, LVCOL_CARD, 0);
+        lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(c, LVCOL_BORDER, 0);
+        lv_obj_set_style_border_width(c, 2, 0);
+        lv_obj_set_style_radius(c, 12, 0);
+        lv_obj_clear_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t *title = lv_label_create(c);
+        String tl = String(t(I18N_POD_READER)) + " " + readers[i].id;
+        lv_label_set_text(title, tl.c_str());
+        lv_obj_set_style_text_color(title, LVCOL_MUTED, 0);
+        lv_obj_set_style_text_font(title, &gFont16, 0);
+        lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 12);
+        lv_obj_t *ic = lv_label_create(c);
+        lv_label_set_text(ic, LV_SYMBOL_WIFI);
+        lv_obj_set_style_text_color(ic, LVCOL_MUTED, 0);
+        lv_obj_set_style_text_font(ic, &lv_font_montserrat_28, 0);
+        lv_obj_align(ic, LV_ALIGN_CENTER, 0, -2);
+        uidLbl[i] = lv_label_create(c);
+        lv_obj_set_style_text_font(uidLbl[i], &gFont16, 0);
+        lv_obj_set_width(uidLbl[i], 205);
+        lv_obj_set_style_text_align(uidLbl[i], LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_align(uidLbl[i], LV_ALIGN_BOTTOM_MID, 0, -12);
+        card[i] = c;
+    }
+
+    // The last thing Studio asked for, and how it went.
+    lv_obj_t *lastOp = lv_label_create(scr);
+    lv_obj_set_style_text_font(lastOp, &gFont16, 0);
+    lv_obj_set_width(lastOp, 460);
+    lv_obj_set_style_text_align(lastOp, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(lastOp, 10, 232);
+    lv_label_set_text(lastOp, "");
+
+    lv_obj_t *hint = lv_label_create(scr);
+    lv_obj_set_style_text_font(hint, &gFont14, 0);
+    lv_obj_set_style_text_color(hint, LVCOL_MUTED, 0);
+    lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(hint, 460);
+    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(hint, 10, 266);
+
+    auto showReader = [&](int i) {
+        PodReader &p = readers[i];
+        if (p.present) {
+            String u = podHex(p.uid, p.uidLen); u.toUpperCase();
+            lv_label_set_text(uidLbl[i], u.c_str());
+            lv_obj_set_style_text_color(uidLbl[i], LVCOL_TEXT, 0);
+            lv_obj_set_style_border_color(card[i], LVCOL_ACCENT, 0);
+        } else {
+            lv_label_set_text(uidLbl[i], t(I18N_POD_NO_CHIP));
+            lv_obj_set_style_text_color(uidLbl[i], LVCOL_MUTED, 0);
+            lv_obj_set_style_border_color(card[i], LVCOL_BORDER, 0);
+        }
+    };
+    auto setOp = [&](const char *what, bool ok, const char *reader) {
+        String s = String(ok ? LV_SYMBOL_OK " " : LV_SYMBOL_CLOSE " ") + what + "  -  "
+                 + t(I18N_POD_READER) + " " + reader;
+        lv_label_set_text(lastOp, s.c_str());
+        lv_obj_set_style_text_color(lastOp, ok ? LVCOL_GREEN : LVCOL_RED, 0);
+    };
+    size_t shownClients = (size_t)-1;
+    auto showStatus = [&]() {
+        size_t n = podWs.count();
+        if (n == shownClients) return;
+        shownClients = n;
+        if (n) {
+            String s = String(LV_SYMBOL_OK "  ") + t(I18N_POD_CONNECTED);
+            lv_label_set_text(status, s.c_str());
+            lv_obj_set_style_text_color(status, LVCOL_GREEN, 0);
+            lv_label_set_text(hint, "");
+        } else {
+            String s = String(LV_SYMBOL_REFRESH "  ") + t(I18N_POD_WAITING);
+            lv_label_set_text(status, s.c_str());
+            lv_obj_set_style_text_color(status, LVCOL_YELLOW, 0);
+            if (!WiFi.isConnected()) lv_label_set_text(hint, t(I18N_NO_WIFI));
+            else                     lv_label_set_text(hint, t(I18N_POD_HINT));
+        }
+    };
+    for (int i = 0; i < 2; i++) showReader(i);
+    showStatus();
+
+    // One carrier up at a time: the two antennas face each other 75 mm apart,
+    // and a field that is up is heard by the other reader (see setRfField()).
+    // A chip needs a few milliseconds of field before it answers.
+    int fieldOn = -1;
+    auto podField = [&](int i) {
+        if (fieldOn == i) return;
+        readers[1 - i].r->antennaOff();
+        readers[i].r->antennaOn();
+        fieldOn = i;
+        delay(6);
+    };
+
+    // The JSON of a chip event, sent to every client or to one.
+    auto cardMsg = [&](PodReader &p) -> String {
+        String m = String("{\"type\":\"card\",\"reader\":\"") + p.id + "\",\"uid\":\""
+                 + podHex(p.uid, p.uidLen) + "\",\"atr\":\"" + podAtr(p.uidLen) + "\",\"rawPagesHex\":";
+        m += p.pagesHex.length() ? "\"" + p.pagesHex + "\"}" : String("null}");
+        return m;
+    };
+
+    gPodOpen = true;
+    lv_scr_load(scr);
+    lvglDrainPress(800);
+
+    uint32_t lastPoll = 0;
+    int pollIdx = 0;
+    while (sAct != POD_BACK) {
+        lv_timer_handler(); delay(5);
+        wifiKeepAlive();
+        showStatus();
+
+        // Studio's requests, one at a time.
+        PodInMsg in; bool have = false;
+        {
+            std::lock_guard<std::mutex> guard(gPodLock);
+            if (!gPodInbox.empty()) { in = gPodInbox.front(); gPodInbox.pop_front(); have = true; }
+        }
+        if (have) {
+            PresseJsonDocument doc(POD_MAX_MSG * 2);   // a JSON document in PSRAM
+            if (deserializeJson(doc, (const char *)in.text.c_str())) continue;
+            const char *type = doc["type"] | "";
+            if (!strcmp(type, "hello")) {
+                for (auto &p : readers) {
+                    podWs.text(in.client, String("{\"type\":\"reader-connected\",\"reader\":\"") + p.id + "\"}");
+                    if (p.present) podWs.text(in.client, cardMsg(p));
+                }
+                continue;
+            }
+            const char *rid = doc["reader"] | "";
+            long id = doc["id"] | 0L;
+            PodReader *p = !strcmp(rid, "1") ? &readers[0] : !strcmp(rid, "2") ? &readers[1] : nullptr;
+            bool isRead = !strcmp(type, "read-now"), isWrite = !strcmp(type, "write-now");
+            if (!isRead && !isWrite) continue;
+            const char *resType = isRead ? "read-result" : "write-result";
+            auto fail = [&](const char *err) {
+                podWs.text(in.client, String("{\"type\":\"") + resType + "\",\"id\":" + id
+                                      + ",\"ok\":false,\"error\":\"" + err + "\"}");
+                if (p) setOp(t(I18N_POD_FAILED), false, p->id);
+            };
+            if (!p)               { fail("Reader not connected"); continue; }
+            if (!p->present)      { fail("No card present"); continue; }
+            podField(p - readers);
+            if (!podSelect(*p))   { fail("Card moved"); continue; }
+
+            if (isRead) {
+                int start = doc["start"] | 4;
+                int length = doc["length"] | 144;
+                if (start < 0 || start > 255 || length <= 0 || length > 1024) { fail("Bad range"); continue; }
+                uint8_t *buf = (uint8_t *)heap_caps_malloc(length, MALLOC_CAP_SPIRAM);
+                if (!buf) { fail("Out of memory"); continue; }
+                bool ok = podReadPages(*p, (uint8_t)start, length, buf);
+                if (ok) podWs.text(in.client, String("{\"type\":\"read-result\",\"id\":") + id
+                                             + ",\"ok\":true,\"rawPagesHex\":\"" + podHex(buf, length) + "\"}");
+                else fail("Read failed");
+                free(buf);
+                if (ok) setOp(t(I18N_POD_READ), true, p->id);
+                continue;
+            }
+
+            // write-now: every page checked before the first one is written.
+            JsonArray pages = doc["pages"].as<JsonArray>();
+            bool valid = !pages.isNull();
+            int maxPage = 0;
+            for (JsonObject pg : pages) {
+                int idx = pg["index"] | -1;
+                const char *hx = pg["hexData"] | "";
+                if (idx < 4 || idx > 225 || strlen(hx) != 8) { valid = false; break; }
+                for (int k = 0; k < 8; k++) if (podNib(hx[k]) < 0) valid = false;
+                if (idx > maxPage) maxPage = idx;
+            }
+            if (!valid) { fail("Bad pages"); continue; }
+            int written = 0; bool ok = true; int failedAt = -1;
+            for (JsonObject pg : pages) {
+                const char *hx = pg["hexData"];
+                uint8_t d[4];
+                for (int k = 0; k < 4; k++) d[k] = (uint8_t)(podNib(hx[2 * k]) << 4 | podNib(hx[2 * k + 1]));
+                bool w = p->r->writePage((uint8_t)(int)pg["index"], d);
+                if (!w) { delay(20); w = p->r->writePage((uint8_t)(int)pg["index"], d); }
+                if (!w) { ok = false; failedAt = pg["index"]; break; }
+                written++;
+            }
+            if (!ok) {
+                char e[48]; snprintf(e, sizeof e, "Write failed at page %d", failedAt);
+                fail(e); continue;
+            }
+            // Read back what was written, the way Studio's own reader process does.
+            String verified = "null", mismatch = "[]";
+            if (doc["verify"] | false) {
+                size_t length = max((size_t)144, (size_t)(maxPage - 4 + 1) * 4);
+                length = (length + 15) & ~(size_t)15;
+                uint8_t *back = (uint8_t *)heap_caps_malloc(length, MALLOC_CAP_SPIRAM);
+                bool readOk = back && podReadPages(*p, 4, length, back);
+                bool allSame = readOk;
+                mismatch = "[";
+                if (!readOk) mismatch += "-1";
+                else for (JsonObject pg : pages) {
+                    int idx = pg["index"];
+                    const char *hx = pg["hexData"];
+                    String got = podHex(back + (idx - 4) * 4, 4);
+                    if (!got.equalsIgnoreCase(hx)) {
+                        if (!allSame) mismatch += ",";
+                        mismatch += String(idx);
+                        allSame = false;
+                    }
+                }
+                mismatch += "]";
+                if (back) free(back);
+                verified = allSame ? "true" : "false";
+            }
+            podWs.text(in.client, String("{\"type\":\"write-result\",\"id\":") + id + ",\"ok\":true,\"pagesWritten\":"
+                                  + written + ",\"verified\":" + verified + ",\"mismatchPages\":" + mismatch + "}");
+            setOp(t(I18N_POD_WRITTEN), verified != "false", p->id);
+            // The chip changed under Studio's eyes: send it again, as a reader
+            // would on the next touch.
+            uint8_t pg[144];
+            if (podReadPages(*p, 4, 144, pg)) p->pagesHex = podHex(pg, 144);
+            continue;
+        }
+
+        // A chip put down or taken away, one reader per tick.
+        if (millis() - lastPoll < POD_POLL_MS) continue;
+        lastPoll = millis();
+        PodReader &p = readers[pollIdx];
+        podField(pollIdx);
+        pollIdx ^= 1;
+        bool seen = p.r->isNewCardPresent() && p.r->readCardSerial();
+        bool same = seen && p.present && p.r->uid.size == p.uidLen
+                    && memcmp(p.r->uid.uidByte, p.uid, p.uidLen) == 0;
+        if (seen && !same) {
+            if (p.present) podWs.textAll(String("{\"type\":\"card-removed\",\"reader\":\"") + p.id + "\"}");
+            p.uidLen = min((uint8_t)10, p.r->uid.size);
+            memcpy(p.uid, p.r->uid.uidByte, p.uidLen);
+            p.present = true;
+            p.misses = 0;
+            p.pagesHex = "";
+            uint8_t pg[144];
+            // A MIFARE Classic answers no Ultralight READ: it goes out without
+            // pages, which is what tells Studio it is a maker's chip.
+            if (p.uidLen == 7 && podReadPages(p, 4, 144, pg)) p.pagesHex = podHex(pg, 144);
+            podWs.textAll(cardMsg(p));
+            playBeeps(1760, 40, 1);
+            showReader(&p - readers);
+        } else if (same) {
+            p.misses = 0;
+        } else if (p.present && ++p.misses >= POD_GONE_MISSES) {
+            p.present = false;
+            podWs.textAll(String("{\"type\":\"card-removed\",\"reader\":\"") + p.id + "\"}");
+            showReader(&p - readers);
+        }
+    }
+
+    // Closed: no one may drive the readers any more.
+    gPodOpen = false;
+    podWs.closeAll(1001, "TigerPOD closed");
+    rfidAntennaSetAll(true);
+    {
+        std::lock_guard<std::mutex> guard(gPodLock);
+        gPodInbox.clear();
+        gPodPartial.clear();
+    }
+    lv_scr_load(backTo);
+    lv_obj_del(scr);
+    lvglDrainPress(800);
 }
 
 struct LauncherTool {
@@ -8261,6 +8875,7 @@ static const LauncherTool kLauncherTools[] = {
     { nullptr,       I18N_TOOL_PARCEL,  I18N_TOOL_PARCEL_SUB,     LV_SYMBOL_DOWNLOAD, 0xE8821E, runParcelScale },
     { nullptr,       I18N_TOOL_CALTEST, I18N_TOOL_CALTEST_SUB,    LV_SYMBOL_SETTINGS, 0x3BA55D, runLoadCellTest },
     { nullptr,       I18N_TOOL_PRESSE,  I18N_TOOL_PRESSE_SUB,     LV_SYMBOL_CHARGE,   0xE24B4A, runPresseMemo },
+    { "TigerPOD",    I18N_COUNT,        I18N_TOOL_POD_SUB,        LV_SYMBOL_EDIT,     0xF5A623, runTigerPod },
 };
 static const int kLauncherToolCount = sizeof(kLauncherTools) / sizeof(kLauncherTools[0]);
 
@@ -11501,6 +12116,11 @@ void setupWebServer() {
 
     ws.onEvent(onWsEvent);
     server.addHandler(&ws);
+    // The TigerPOD tool's socket (§9): refuses every handshake unless the tool
+    // is open on the screen and the LAN access code is given.
+    podWs.handleHandshake(podHandshake);
+    podWs.onEvent(onPodWsEvent);
+    server.addHandler(&podWs);
 
     // Serve index.html(.gz), with a built-in fallback page when LittleFS has no UI files
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -15404,6 +16024,29 @@ static void lvglFlushCb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *c
     lv_disp_flush_ready(drv);
 }
 
+// A short click on every touch of something that reacts to touch: LVGL calls
+// this for every event it sends while the finger is down, so it filters to
+// the PRESSED of an object that has a handler of its own -- a button, a row,
+// a header band -- and stays quiet on plain backgrounds and scroll areas.
+// PRESSED, not CLICKED: the header bands act on PRESSED and their screen is
+// gone before a CLICKED would come. LVGL runs this before the object's own
+// handlers, so the click is heard before whatever the touch then does.
+// Follows mute and volume like every other sound. Only screens drawn with
+// LVGL have it; a screen still drawn straight on the panel stays silent.
+static void lvglTouchFeedbackCb(lv_indev_drv_t *drv, uint8_t code) {
+    (void)drv;
+    if (code != LV_EVENT_PRESSED || gMute) return;
+    lv_obj_t *obj = lv_indev_get_obj_act();
+    if (!obj || !obj->spec_attr || obj->spec_attr->event_dsc_cnt == 0) return;
+    // A bubbling PRESSED reaches the parents too: one click per touch.
+    static lv_obj_t *sLastObj = nullptr;
+    static uint32_t  sLastMs  = 0;
+    uint32_t now = millis();
+    if (obj == sLastObj && now - sLastMs < 150) return;
+    sLastObj = obj; sLastMs = now;
+    playBeeps(1760, 25, 1);
+}
+
 // Wraps the existing AXS5106L polling function (already returns coordinates
 // pre-rotated into the same 480x320 landscape space LVGL expects).
 
@@ -15469,6 +16112,7 @@ static void lvglInit() {
     lv_indev_drv_init(&lvIndevDrv);
     lvIndevDrv.type    = LV_INDEV_TYPE_POINTER;
     lvIndevDrv.read_cb = lvglTouchCb;
+    lvIndevDrv.feedback_cb = lvglTouchFeedbackCb;
     lv_indev_drv_register(&lvIndevDrv);
 
     lvglReady = true;

@@ -274,6 +274,27 @@ subscriptions, no acknowledgements.
 To command a scale, use the HTTP endpoints above. The WebSocket is a one-way
 state feed.
 
+## The TigerPOD socket
+
+`ws://<scale>/pod?c=<LAN access code>` lends the scale's two RFID readers to Tiger Studio, the
+way a TigerPOD (a USB reader on the computer) is used. It is the one authenticated channel: the
+handshake is refused unless the code matches **and** the TigerPOD tool is open on the scale's own
+screen; closing the tool drops every client. Studio connects on its own (`services/scale-pod.js`)
+to the scales of the account that publish `lan_url` and `lan_access_code`.
+
+| Direction | Message |
+|---|---|
+| scale → client | `{"type":"reader-connected","reader":"1"}` (and `"2"`), sent on connect |
+| scale → client | `{"type":"card","reader":"1","uid":"04a1…","atr":"3b8f…","rawPagesHex":"…"}` — pages 4–39 of an NTAG, `null` for a 4-byte-UID MIFARE Classic |
+| scale → client | `{"type":"card-removed","reader":"1"}` |
+| client → scale | `{"type":"read-now","reader":"1","id":7,"start":4,"length":144}` → `{"type":"read-result","id":7,"ok":true,"rawPagesHex":"…"}` |
+| client → scale | `{"type":"write-now","reader":"1","id":8,"verify":true,"pages":[{"index":4,"hexData":"01020304"}]}` → `{"type":"write-result","id":8,"ok":true,"pagesWritten":1,"verified":true,"mismatchPages":[]}` |
+
+Pages below 4 (UID, lock bits, capability container) and above 225 are refused, every page of a
+write is checked before the first one is written, and a failure answers `"ok":false` with an
+`"error"`. The `atr` is the one an ACR122U reports for that chip family, which is what Studio
+tells NTAG from MIFARE Classic by.
+
 ## Coverage: where each value lives
 
 | What you want | `/api/status` | WebSocket | Firestore |

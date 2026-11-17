@@ -219,6 +219,11 @@ Three things worth knowing about that list:
   reset now runs on `Wire1` **for the -3.5 only**: the -3.5B has been booting
   without it for months, and giving the whole fleet a new bring-up step to fix a
   board it is not running on would be the wrong trade.
+- **On the -3.5, the speaker amplifier is switched by the TCA9554 too**
+  (EXIO7 = P7 = `PA_CTRL`, the NS4150B's enable, pulled low by 10 k on the
+  Rev 2.0 schematic). Left as an input it kept the amplifier off, and the board
+  never made a sound; the same `lcdResetByTCA9554()` call now drives it high.
+  The -3.5B is unchanged.
 - **0x51 and 0x6B are on-board parts the firmware does not use**, named by the
   schematics' `RTC_*` and `IMU_*` nets and the vendor documentation. The PCF85063
   means the scale has a battery-backed clock it never reads: it relies on

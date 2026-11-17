@@ -38,7 +38,8 @@ static const char PRESSE_DEFAULTS_EN[] = R"JSON({"settings":{"defaults":true},"c
 {"name":"Polyester T-shirt","temp":195,"time":50,"pressure":"Medium","peel":"Hot","note":"Protective paper on top"},
 {"name":"Mouse pad","temp":200,"time":45,"pressure":"Light","peel":"Hot","note":"Fabric side to the paper"},
 {"name":"Aluminium / MDF panel","temp":200,"time":60,"pressure":"Medium","peel":"Hot","note":"Remove the protective film"},
-{"name":"Cushion cover","temp":200,"time":50,"pressure":"Medium","peel":"Hot","note":"Cardboard inside"}]},
+{"name":"Cushion cover","temp":200,"time":50,"pressure":"Medium","peel":"Hot","note":"Cardboard inside"},
+{"name":"Mug","temp":200,"time":180,"pressure":"Medium","peel":"Hot","note":"Mug press, gloves to take it out"}]},
 {"name":"DTF","color":"#2980B9","items":[
 {"name":"Cotton","temp":160,"time":15,"pressure":"Firm","peel":"Cold","note":"Press again 5 s after peeling"},
 {"name":"Polyester","temp":135,"time":12,"pressure":"Medium","peel":"Cold","note":"Watch for dye migration"},
@@ -56,7 +57,8 @@ static const char PRESSE_DEFAULTS_FR[] = R"JSON({"settings":{"defaults":true},"c
 {"name":"T-shirt polyester","temp":195,"time":50,"pressure":"Moyenne","peel":"Chaud","note":"Papier de protection dessus"},
 {"name":"Tapis de souris","temp":200,"time":45,"pressure":"Légère","peel":"Chaud","note":"Tissu côté papier"},
 {"name":"Plaque alu / MDF","temp":200,"time":60,"pressure":"Moyenne","peel":"Chaud","note":"Retirer le film protecteur"},
-{"name":"Coussin / taie","temp":200,"time":50,"pressure":"Moyenne","peel":"Chaud","note":"Carton à l'intérieur"}]},
+{"name":"Coussin / taie","temp":200,"time":50,"pressure":"Moyenne","peel":"Chaud","note":"Carton à l'intérieur"},
+{"name":"Tasse / mug","temp":200,"time":180,"pressure":"Moyenne","peel":"Chaud","note":"Presse à tasse, gants pour la sortir"}]},
 {"name":"DTF","color":"#2980B9","items":[
 {"name":"Coton","temp":160,"time":15,"pressure":"Forte","peel":"Froid","note":"Repressage 5 s après pelage"},
 {"name":"Polyester","temp":135,"time":12,"pressure":"Moyenne","peel":"Froid","note":"Attention migration couleur"},
@@ -99,6 +101,7 @@ static const char PRESSE_PAGE[] PROGMEM = R"HTML(<!doctype html>
   td { padding:3px 4px; vertical-align:middle; }
   .w-temp, .w-time { width:84px; }
   .w-sel { width:120px; }
+  .w-icon { width:150px; }
   .w-act { width:112px; white-space:nowrap; text-align:right; }
   .banner { padding:10px 14px; border-radius:8px; margin-bottom:16px; background:#3a2d12; color:#f5d38a; }
   .panel { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:16px; }
@@ -112,7 +115,7 @@ static const char PRESSE_PAGE[] PROGMEM = R"HTML(<!doctype html>
     td { padding:0; }
     td.name, td.note { grid-column:1 / -1; }
     td::before { content:attr(data-l); display:block; color:var(--mute); font-size:11px; }
-    .w-temp, .w-time, .w-sel, .w-act { width:auto; }
+    .w-temp, .w-time, .w-sel, .w-icon, .w-act { width:auto; }
     td.w-act { grid-column:1 / -1; text-align:left; }
   }
 </style>
@@ -152,7 +155,9 @@ const STR = {
        newItem:"New product", newCat:"New category", saved:"Saved to the scale", demoSend:"Demo mode: nothing is sent",
        error:"Error: ", imported:"Imported, remember to save", badFile:"Invalid file",
        resetQ:"Replace the whole list with the factory values?", resetDone:"Factory values restored",
-       pressures:["Light", "Medium", "Firm"], peels:["Hot", "Warm", "Cold", "-"], defPressure:"Medium", defPeel:"Hot"},
+       pressures:["Light", "Medium", "Firm"], peels:["Hot", "Warm", "Cold", "-"], defPressure:"Medium", defPeel:"Hot",
+       icon:"Thumbnail", icons:{"":"Auto (from the name)", none:"None", tshirt:"T-shirt", hoodie:"Hoodie / sweater", mug:"Mug",
+       cap:"Cap", bag:"Bag", mousepad:"Mouse pad", cushion:"Cushion", plate:"Panel / plate", bottle:"Bottle", phone:"Phone case"}},
   fr: {title:"Mémo presse", addCat:"+ Catégorie", export:"Exporter", import:"Importer", save:"Enregistrer sur la balance",
        demo:"Mode démo : balance non joignable, les modifications ne seront pas enregistrées.",
        indicative:"Les valeurs d'usine sont indicatives : vérifiez-les avec les fiches techniques de vos fournisseurs.",
@@ -164,7 +169,9 @@ const STR = {
        newItem:"Nouveau produit", newCat:"Nouvelle catégorie", saved:"Enregistré sur la balance", demoSend:"Mode démo : rien n'est envoyé",
        error:"Erreur : ", imported:"Importé, pensez à enregistrer", badFile:"Fichier invalide",
        resetQ:"Remplacer toute la liste par les valeurs d'usine ?", resetDone:"Valeurs d'usine restaurées",
-       pressures:["Légère", "Moyenne", "Forte"], peels:["Chaud", "Tiède", "Froid", "-"], defPressure:"Moyenne", defPeel:"Chaud"}
+       pressures:["Légère", "Moyenne", "Forte"], peels:["Chaud", "Tiède", "Froid", "-"], defPressure:"Moyenne", defPeel:"Chaud",
+       icon:"Miniature", icons:{"":"Auto (selon le nom)", none:"Aucune", tshirt:"T-shirt", hoodie:"Sweat / pull", mug:"Tasse / mug",
+       cap:"Casquette", bag:"Sac", mousepad:"Tapis de souris", cushion:"Coussin", plate:"Plaque", bottle:"Gourde", phone:"Coque de téléphone"}}
 };
 const L = STR[(navigator.language || "en").slice(0, 2).toLowerCase()] || STR.en;
 document.documentElement.lang = L === STR.fr ? "fr" : "en";
@@ -204,6 +211,18 @@ function select(options, value, onchange) {
   if (value && !options.includes(value)) s.append(el("option", {value, textContent:value, selected:true}));
   return s;
 }
+// The thumbnail shown on the scale: "" lets the scale pick one from the
+// name, "none" shows none; the other values are the ids of presse_icons.h.
+function iconSelect(obj) {
+  const s = el("select", {title:L.icon, onchange:e => {
+    if (e.target.value) obj.icon = e.target.value; else delete obj.icon;
+    changed();
+  }});
+  for (const [id, label] of Object.entries(L.icons))
+    s.append(el("option", {value:id, textContent:label, selected:(obj.icon || "") === id}));
+  if (obj.icon && !(obj.icon in L.icons)) s.append(el("option", {value:obj.icon, textContent:obj.icon, selected:true}));
+  return s;
+}
 function move(arr, i, d) {
   const j = i + d;
   if (j < 0 || j >= arr.length) return;
@@ -228,6 +247,7 @@ function render() {
         oninput:e => { cat.color = e.target.value; box.style.setProperty("--c", cat.color); changed(); }}),
       el("input", {type:"text", value:cat.name, placeholder:L.catPh,
         oninput:e => { cat.name = e.target.value; changed(); }}),
+      iconSelect(cat),
       el("button", {className:"icon", title:L.up, textContent:"↑", onclick:() => move(data.categories, ci, -1)}),
       el("button", {className:"icon", title:L.down, textContent:"↓", onclick:() => move(data.categories, ci, 1)}),
       el("button", {className:"icon danger", title:L.delCat, textContent:"✕", onclick:() => {
@@ -241,6 +261,7 @@ function render() {
         oninput:e => { it[key] = Math.max(min, Math.min(max, parseInt(e.target.value) || 0)); changed(); }});
       tbody.append(el("tr", {},
         el("td", {className:"name", dataset:{l:L.product}}, el("input", {value:it.name, placeholder:L.productPh, oninput:e => { it.name = e.target.value; changed(); }})),
+        el("td", {className:"w-icon", dataset:{l:L.icon}}, iconSelect(it)),
         el("td", {className:"w-temp", dataset:{l:L.temp}}, num("temp", 0, 250)),
         el("td", {className:"w-time", dataset:{l:L.time}}, num("time", 0, 999)),
         el("td", {className:"w-sel", dataset:{l:L.pressure}}, select(L.pressures, it.pressure, e => { it.pressure = e.target.value; changed(); })),
@@ -255,7 +276,7 @@ function render() {
 
     box.append(head,
       el("table", {},
-        el("thead", {}, el("tr", {}, ...[L.product, L.temp, L.time, L.pressure, L.peel, L.note, ""].map(t => el("th", {textContent:t})))),
+        el("thead", {}, el("tr", {}, ...[L.product, L.icon, L.temp, L.time, L.pressure, L.peel, L.note, ""].map(t => el("th", {textContent:t})))),
         tbody),
       el("button", {textContent:L.addItem, style:"margin-top:8px", onclick:() => {
         cat.items.push({name:L.newItem, temp:160, time:15, pressure:L.defPressure, peel:L.defPeel, note:""});
