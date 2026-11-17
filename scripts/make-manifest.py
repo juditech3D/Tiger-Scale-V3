@@ -84,6 +84,9 @@ def sha256(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--version", required=True)
+    # The name the installer shows. A fork with its own firmware must not call it
+    # "TigerScale" (TRADEMARK.md), so its workflows pass their own.
+    ap.add_argument("--product", default="TigerScale V3")
     ap.add_argument("--repo", required=True, help="owner/name")
     ap.add_argument("--ota-env", required=True, help="env whose binary the OTA channel serves")
     ap.add_argument("--dist", default="dist")
@@ -204,9 +207,8 @@ def main():
         os.makedirs(args.web_installer, exist_ok=True)
         for env, board_id, board_name, description in BOARDS:
             wt = {
-                "name": "TigerScale V3 (%s)" % board_name,
+                "name": "%s (%s)" % (args.product, board_name),
                 "version": args.version,
-                "funding_url": "https://buymeacoffee.com/benoitl",
                 "new_install_prompt_erase": True,
                 "builds": [{
                     "chipFamily": "ESP32-S3",
@@ -219,6 +221,8 @@ def main():
                     ],
                 }],
             }
+            if args.product == "TigerScale V3":
+                wt["funding_url"] = "https://buymeacoffee.com/benoitl"
             path = os.path.join(args.web_installer, "manifest-%s.json" % env)
             with open(path, "w", encoding="utf-8") as fh:
                 json.dump(wt, fh, indent=2)

@@ -55,8 +55,8 @@ import sys
 import urllib.error
 import urllib.request
 
-REPO = "TigerTag-Project/Tiger-Scale-V3"
-PAGES = "https://tigertag-project.github.io/Tiger-Scale-V3"
+REPO = os.environ.get("GITHUB_REPOSITORY", "TigerTag-Project/Tiger-Scale-V3")
+PAGES = "https://%s.github.io/%s" % (REPO.split("/")[0].lower(), REPO.split("/")[1])
 
 # Per published board. Kept in step with BOARDS in make-manifest.py; the check
 # at the end of this script fails if a manifest names a file that is not covered.

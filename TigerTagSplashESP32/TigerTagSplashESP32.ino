@@ -15,34 +15,34 @@
 //
 //   TABLE OF CONTENTS                                     line range
 //   ---------------------------------------------------- -----------
-//   HARDWARE CONFIGURATION                                 265-  458
-//   OTA CONFIGURATION                                      459-  491
-//   FORWARD DECLARATIONS                                   492-  802
-//   WEIGHT ROUNDING                                        803-  835
-//   GLOBAL OBJECTS                                         836- 1818
-//   CONFIGURATION VARIABLES                               1819- 2248
-//   OLED DISPLAY                                          2249- 3032
-//   CLOUD PARSING                                         3033- 3047
-//   WIFI SETUP                                            3048- 9684
-//   LITTLEFS                                              9685- 9984
-//   FIREBASE AUTHENTICATION                               9985-11667
-//   WEBSOCKET                                            11668-11694
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 11695-11829
-//   UNIFIED WS FRAME BUILDER                             11830-11954
-//   WEIGHT FILTER HELPERS                                11955-11969
-//   POST-SEND STATE RESET (shared by all send paths)     11970-11990
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 11991-12094
-//   WEB SERVER                                           12095-13189
-//   CLOUD COMMUNICATION                                  13190-13372
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 13373-13880
-//   mDNS                                                 13881-13918
-//   SCALE                                                13919-14089
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  14090-14222
-//   RFID                                                 14223-15305
-//   OTA — Over-the-air firmware + filesystem update    15306-15985
-//   LVGL bridge + main weigh screen                      15986-16949
-//   Remote live view: the screen out, taps back in       16950-17799
-//   SETUP & LOOP                                         17800-19054
+//   HARDWARE CONFIGURATION                                 266-  459
+//   OTA CONFIGURATION                                      460-  496
+//   FORWARD DECLARATIONS                                   497-  807
+//   WEIGHT ROUNDING                                        808-  840
+//   GLOBAL OBJECTS                                         841- 1823
+//   CONFIGURATION VARIABLES                               1824- 2253
+//   OLED DISPLAY                                          2254- 3037
+//   CLOUD PARSING                                         3038- 3052
+//   WIFI SETUP                                            3053-10049
+//   LITTLEFS                                             10050-10349
+//   FIREBASE AUTHENTICATION                              10350-12032
+//   WEBSOCKET                                            12033-12059
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12060-12194
+//   UNIFIED WS FRAME BUILDER                             12195-12319
+//   WEIGHT FILTER HELPERS                                12320-12334
+//   POST-SEND STATE RESET (shared by all send paths)     12335-12355
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 12356-12459
+//   WEB SERVER                                           12460-13588
+//   CLOUD COMMUNICATION                                  13589-13771
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 13772-14279
+//   mDNS                                                 14280-14317
+//   SCALE                                                14318-14488
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  14489-14621
+//   RFID                                                 14622-15704
+//   OTA — Over-the-air firmware + filesystem update    15705-16384
+//   LVGL bridge + main weigh screen                      16385-17348
+//   Remote live view: the screen out, taps back in       17349-18198
+//   SETUP & LOOP                                         18199-19454
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -112,6 +112,7 @@ struct MetadataCache { String mfr; String mat; String col; uint32_t productId; }
 #include "i18n.h"                 // translation table — edit i18n.h to add/change strings
 #include "live_page.h"            // the live view's browser page — see §LIVE
 #include "screen_page.h"          // the /screen page — same reason it is a header
+#include "tools_page.h"           // the start menu's tool choice (/tools) — same reason
 #include "presse_page.h"          // the heat press memo editor (/presse) — same reason
 #include "presse_icons.h"         // its product thumbnails (scripts/make-presse-icons.py)
 #include "pod_reader.h"           // TigerPOD tool (§9): one reader as Studio sees it
@@ -481,7 +482,11 @@ const char* TIGERTAG_FIREBASE_WEB_API_KEY = "AIzaSyCkxPTs_Cv0KVLqsZj-UKWWqIY0Otf
 // different hardware (ESP32-WROOM / RC522 / OLED) and its firmware.bin would
 // brick a V3 unit; sharing one version.json between the two generations would
 // mean each offering the other's binary as an update.
-const char* TIGERSCALE_VERSION_URL = "https://tigertag-project.github.io/Tiger-Scale-V3/version.json";
+//
+// This fork publishes its own builds, with the tools the official firmware does
+// not have. Its scales must take their updates from the fork's Pages: an official
+// release would be offered as an update and would remove those tools.
+const char* TIGERSCALE_VERSION_URL = "https://juditech3d.github.io/Tiger-Scale-V3/version.json";
 
 // How often to poll the Firestore command queue (commands/{id} subcollection).
 // Reuses the heartbeat tick (every 30 s) so we don't add a separate timer.
@@ -7528,6 +7533,7 @@ static void runOtaMenu() {
 // row needs no layout change.
 
 static bool gLauncherRequested = true;    // boot shows the launcher once
+static bool gLauncherForce = false;       // Settings -> Tools: show it even with one tool
 
 // Finger still on the glass after the tap that opened or closed a screen:
 // wait for the lift so it cannot land on whatever appears under it.
@@ -8863,6 +8869,7 @@ static void runTigerPod(lv_obj_t *backTo) {
 }
 
 struct LauncherTool {
+    const char *id;                     // stable, in NVS and over USB / HTTP
     const char *fixedName;              // language-neutral name, or nullptr to use nameKey
     LangKey     nameKey;
     LangKey     subKey;
@@ -8871,19 +8878,354 @@ struct LauncherTool {
     void      (*run)(lv_obj_t *backTo); // nullptr = leave the launcher for the weigh workflow
 };
 static const LauncherTool kLauncherTools[] = {
-    { "Tiger Scale", I18N_COUNT,        I18N_TOOL_TIGERSCALE_SUB, LV_SYMBOL_REFRESH,  0x2F7FFF, nullptr },
-    { "TigerPOD",    I18N_COUNT,        I18N_TOOL_POD_SUB,        LV_SYMBOL_EDIT,     0xF5A623, runTigerPod },
-    { nullptr,       I18N_TOOL_PARCEL,  I18N_TOOL_PARCEL_SUB,     LV_SYMBOL_DOWNLOAD, 0xE8821E, runParcelScale },
-    { nullptr,       I18N_TOOL_CALTEST, I18N_TOOL_CALTEST_SUB,    LV_SYMBOL_SETTINGS, 0x3BA55D, runLoadCellTest },
-    { nullptr,       I18N_TOOL_PRESSE,  I18N_TOOL_PRESSE_SUB,     LV_SYMBOL_CHARGE,   0xE24B4A, runPresseMemo },
+    { "tigerscale", "Tiger Scale", I18N_COUNT,        I18N_TOOL_TIGERSCALE_SUB, LV_SYMBOL_REFRESH,  0x2F7FFF, nullptr },
+    { "pod",        "TigerPOD",    I18N_COUNT,        I18N_TOOL_POD_SUB,        LV_SYMBOL_EDIT,     0xF5A623, runTigerPod },
+    { "parcel",     nullptr,       I18N_TOOL_PARCEL,  I18N_TOOL_PARCEL_SUB,     LV_SYMBOL_DOWNLOAD, 0xE8821E, runParcelScale },
+    { "caltest",    nullptr,       I18N_TOOL_CALTEST, I18N_TOOL_CALTEST_SUB,    LV_SYMBOL_SETTINGS, 0x3BA55D, runLoadCellTest },
+    { "presse",     nullptr,       I18N_TOOL_PRESSE,  I18N_TOOL_PRESSE_SUB,     LV_SYMBOL_CHARGE,   0xE24B4A, runPresseMemo },
 };
 static const int kLauncherToolCount = sizeof(kLauncherTools) / sizeof(kLauncherTools[0]);
+static_assert(sizeof(kLauncherTools) / sizeof(kLauncherTools[0]) <= 32, "the tool masks are 32 bits");
 
-// Blocks until "Tiger Scale" is picked, then leaves the weigh screen loaded.
-// Called from loop()'s top level only, like runSettingsMenu().
+// ---------------------------------------------------------------------------
+// Which tools the start menu shows, and in which order
+// ---------------------------------------------------------------------------
+// Every tool is in every build; the owner picks the ones the menu shows and
+// their order. The choice is made in the web installer right after the flash
+// (it sends a line over the same USB cable), on the scale (the eye button of
+// the start menu), or from a browser at /tools. Tiger Scale itself is always
+// shown, always first.
+//
+// Stored as the ids of the HIDDEN tools ("config"/"toolsOff") and the ids in
+// menu order ("config"/"toolsOrder"). A tool added by a later firmware is in
+// neither list, so it appears, at the end, instead of being hidden by a choice
+// made before it existed.
+static volatile uint32_t gToolsHiddenMask = 0;   // bit i = kLauncherTools[i] hidden
+static uint8_t           gToolOrder[32];         // menu position -> kLauncherTools index
+static volatile bool     gToolsChanged    = false;
+static bool              gToolsLoaded     = false;
+static portMUX_TYPE      gToolsMux        = portMUX_INITIALIZER_UNLOCKED;
+
+static int toolIndex(const char *id, size_t len) {
+    for (int i = 0; i < kLauncherToolCount; i++)
+        if (strlen(kLauncherTools[i].id) == len && strncmp(kLauncherTools[i].id, id, len) == 0) return i;
+    return -1;
+}
+
+static bool toolShown(int i) { return i == 0 || !(gToolsHiddenMask & (1u << i)); }
+
+static int toolsShownCount() {
+    int n = 0;
+    for (int i = 0; i < kLauncherToolCount; i++) if (toolShown(i)) n++;
+    return n;
+}
+
+// The tool indexes of a comma-separated id list, in the list's order; ids it
+// does not know are skipped. Returns how many were written to out.
+static int toolsParseIds(const char *list, uint8_t *out, int max) {
+    int n = 0;
+    const char *p = list;
+    while (*p && n < max) {
+        const char *e = strchr(p, ',');
+        size_t len = e ? (size_t)(e - p) : strlen(p);
+        while (len && *p == ' ') { p++; len--; }
+        while (len && p[len - 1] == ' ') len--;
+        int i = toolIndex(p, len);
+        if (i >= 0) out[n++] = (uint8_t)i;
+        if (!e) break;
+        p = e + 1;
+    }
+    return n;
+}
+
+// Tiger Scale first, then the listed tools in the list's order, then every
+// tool the list did not name, in table order.
+static void toolsOrderFrom(const char *list, uint8_t *order) {
+    bool placed[32] = {false};
+    int n = 0;
+    order[n++] = 0; placed[0] = true;
+    uint8_t ids[64];
+    int m = toolsParseIds(list, ids, 64);
+    for (int k = 0; k < m; k++) if (!placed[ids[k]]) { placed[ids[k]] = true; order[n++] = ids[k]; }
+    for (int i = 0; i < kLauncherToolCount; i++) if (!placed[i]) order[n++] = (uint8_t)i;
+}
+
+static String toolsIds(bool shownOnly) {
+    String out;
+    for (int k = 0; k < kLauncherToolCount; k++) {
+        int i = gToolOrder[k];
+        if (shownOnly && !toolShown(i)) continue;
+        if (out.length()) out += ',';
+        out += kLauncherTools[i].id;
+    }
+    return out;
+}
+
+// Its own Preferences handle: the USB command runs on a task of its own, and
+// the global `prefs` belongs to the main loop.
+static void toolsLoad() {
+    if (gToolsLoaded) return;
+    Preferences p;
+    p.begin("config", true);
+    String off   = p.getString("toolsOff", "");
+    String order = p.getString("toolsOrder", "");
+    p.end();
+    uint32_t mask = 0;
+    uint8_t ids[32];
+    int m = toolsParseIds(off.c_str(), ids, 32);
+    for (int k = 0; k < m; k++) if (ids[k] > 0) mask |= 1u << ids[k];
+    portENTER_CRITICAL(&gToolsMux);
+    gToolsHiddenMask = mask;
+    toolsOrderFrom(order.c_str(), gToolOrder);
+    gToolsLoaded = true;
+    portEXIT_CRITICAL(&gToolsMux);
+}
+
+static void toolsSave(uint32_t mask, const uint8_t *order) {
+    mask &= ~1u;                                  // Tiger Scale cannot be hidden
+    portENTER_CRITICAL(&gToolsMux);
+    gToolsHiddenMask = mask;
+    if (order != gToolOrder) memcpy(gToolOrder, order, kLauncherToolCount);
+    gToolsLoaded = true;
+    portEXIT_CRITICAL(&gToolsMux);
+    String off;
+    for (int i = 1; i < kLauncherToolCount; i++) {
+        if (!(mask & (1u << i))) continue;
+        if (off.length()) off += ',';
+        off += kLauncherTools[i].id;
+    }
+    Preferences p;
+    p.begin("config", false);
+    p.putString("toolsOff", off);
+    p.putString("toolsOrder", toolsIds(false));
+    p.end();
+    gToolsChanged = true;
+}
+
+// "pod,parcel" -> those two shown, in that order, every other tool hidden
+// (and kept, in its old order, after them). "all" shows everything in the
+// current order. Unknown ids are skipped, so an installer page newer than the
+// firmware cannot break it.
+static void toolsApplyShownList(const char *list) {
+    toolsLoad();
+    if (strcmp(list, "all") == 0) { toolsSave(0, gToolOrder); return; }
+    uint32_t all = (kLauncherToolCount >= 32) ? 0xFFFFFFFFu : ((1u << kLauncherToolCount) - 1);
+    uint32_t shown = 1;
+    uint8_t ids[32];
+    int m = toolsParseIds(list, ids, 32);
+    for (int k = 0; k < m; k++) shown |= 1u << ids[k];
+    // New order: the list, then the rest in the current order.
+    String rest = String(list);
+    for (int k = 0; k < kLauncherToolCount; k++) { rest += ','; rest += kLauncherTools[gToolOrder[k]].id; }
+    uint8_t order[32];
+    toolsOrderFrom(rest.c_str(), order);
+    toolsSave(all & ~shown, order);
+}
+
+// /api/tools: `order` is the whole menu order, `shown` the tools to show.
+static void toolsApply(const char *shown, const char *order) {
+    toolsLoad();
+    uint8_t ord[32];
+    toolsOrderFrom(order, ord);
+    uint32_t all = (kLauncherToolCount >= 32) ? 0xFFFFFFFFu : ((1u << kLauncherToolCount) - 1);
+    uint32_t on = 1;
+    uint8_t ids[32];
+    int m = toolsParseIds(shown, ids, 32);
+    for (int k = 0; k < m; k++) on |= 1u << ids[k];
+    toolsSave(all & ~on, ord);
+}
+
+// The installer's half of the conversation, over the USB serial port:
+//   TOOLS?               -> TOOLS on=tigerscale,parcel,... order=...
+//   TOOLS=pod,parcel     -> TOOLS OK on=tigerscale,pod,parcel order=...
+//   TOOLS=all            -> every tool shown, order unchanged
+// On a task of its own because the first-boot onboarding and every tool
+// screen block loop(), and the installer talks right after the flash, while
+// the onboarding is on screen.
+static void toolsSerialTask(void *) {
+    char line[200];
+    size_t n = 0;
+    for (;;) {
+        while (Serial.available()) {
+            int c = Serial.read();
+            if (c < 0) break;
+            if (c == '\r') continue;
+            if (c != '\n') { if (n < sizeof(line) - 1) line[n++] = (char)c; continue; }
+            line[n] = '\0';
+            n = 0;
+            if (strncmp(line, "TOOLS", 5) != 0) continue;
+            toolsLoad();
+            if (line[5] == '=') toolsApplyShownList(line + 6);
+            else if (line[5] != '?') continue;
+            Serial.printf("TOOLS %son=%s order=%s\n", line[5] == '=' ? "OK " : "",
+                          toolsIds(true).c_str(), toolsIds(false).c_str());
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+// The eye button of the start menu: one row per tool, in menu order, with a
+// switch to show or hide it and arrows to move it.
+static void runToolPicker(lv_obj_t *backTo) {
+    enum { TP_NONE = 0, TP_BACK = 1, TP_TOGGLE = 2, TP_UP = 3, TP_DOWN = 4 };
+    static int sAct, sArg;
+    auto backCb = [](lv_event_t *) { sAct = TP_BACK; };
+    // user data = action << 8 | menu position
+    auto actCb = [](lv_event_t *e) {
+        intptr_t v = (intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+        sAct = (int)(v >> 8); sArg = (int)(v & 0xFF);
+    };
+    const int ROW_H = 64;
+    lv_obj_t *prevScr = nullptr;
+    lv_coord_t scrollY = 0;
+
+    for (;;) {
+        sAct = TP_NONE;
+        lv_obj_t *scr = lv_obj_create(nullptr);
+        lv_obj_set_style_bg_color(scr, LVCOL_BG, 0);
+        lv_obj_set_style_border_width(scr, 0, 0);
+        lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+        lvglAddHeader(scr, t(I18N_TOOLS_SHOWN), backCb, nullptr, 0);
+
+        lv_obj_t *list = lv_obj_create(scr);
+        lv_obj_remove_style_all(list);
+        lv_obj_set_size(list, 428, 320 - 49);
+        lv_obj_set_pos(list, 0, 49);
+        lv_obj_set_style_pad_top(list, 8, 0);
+        lv_obj_set_style_pad_bottom(list, 8, 0);
+        lv_obj_set_style_pad_left(list, 10, 0);
+        lv_obj_set_style_pad_right(list, 6, 0);
+        lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_row(list, 6, 0);
+        lv_obj_set_scroll_dir(list, LV_DIR_VER);
+        lvglStyleScrollbar(list);
+
+        auto smallBtn = [&](lv_obj_t *row, const char *sym, int x, bool on, intptr_t ud) {
+            lv_obj_t *b = lv_btn_create(row);
+            lv_obj_set_size(b, 38, 38);
+            lv_obj_align(b, LV_ALIGN_LEFT_MID, x, 0);
+            lv_obj_set_style_bg_color(b, LVCOL_BG, 0);
+            lv_obj_set_style_border_color(b, LVCOL_BORDER, 0);
+            lv_obj_set_style_border_width(b, 1, 0);
+            lv_obj_set_style_radius(b, 8, 0);
+            lv_obj_set_style_shadow_width(b, 0, 0);
+            lv_obj_t *ic = lv_label_create(b);
+            lv_label_set_text(ic, sym);
+            lv_obj_set_style_text_font(ic, &lv_font_montserrat_20, 0);
+            lv_obj_set_style_text_color(ic, on ? LVCOL_TEXT : LVCOL_BORDER, 0);
+            lv_obj_center(ic);
+            if (on) {
+                lv_obj_set_user_data(b, (void *)ud);
+                lv_obj_add_event_cb(b, actCb, LV_EVENT_CLICKED, nullptr);
+            } else {
+                lv_obj_clear_flag(b, LV_OBJ_FLAG_CLICKABLE);
+            }
+        };
+
+        for (int k = 0; k < kLauncherToolCount; k++) {
+            int i = gToolOrder[k];
+            const LauncherTool &tool = kLauncherTools[i];
+            lv_obj_t *row = lv_obj_create(list);
+            lv_obj_set_size(row, LV_PCT(100), ROW_H);
+            lv_obj_set_style_bg_color(row, LVCOL_CARD, 0);
+            lv_obj_set_style_border_color(row, LVCOL_BORDER, 0);
+            lv_obj_set_style_border_width(row, 1, 0);
+            lv_obj_set_style_radius(row, 10, 0);
+            lv_obj_set_style_pad_all(row, 0, 0);
+            lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
+
+            lv_obj_t *icon = lv_label_create(row);
+            lv_label_set_text(icon, tool.icon);
+            lv_obj_set_style_text_color(icon, lv_color_hex(tool.iconColor), 0);
+            lv_obj_set_style_text_font(icon, &gFont20, 0);
+            lv_obj_align(icon, LV_ALIGN_LEFT_MID, 14, 0);
+
+            lv_obj_t *name = lv_label_create(row);
+            lv_label_set_text(name, tool.fixedName ? tool.fixedName : t(tool.nameKey));
+            lv_obj_set_style_text_color(name, LVCOL_TEXT, 0);
+            lv_obj_set_style_text_font(name, &gFont20, 0);
+            lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+            lv_obj_set_width(name, 190);
+            lv_obj_set_pos(name, 48, 9);
+
+            lv_obj_t *sub = lv_label_create(row);
+            lv_label_set_text(sub, i == 0 ? t(I18N_TOOLS_ALWAYS) : t(tool.subKey));
+            lv_obj_set_style_text_color(sub, LVCOL_MUTED, 0);
+            lv_obj_set_style_text_font(sub, &gFont14, 0);
+            lv_label_set_long_mode(sub, LV_LABEL_LONG_DOT);
+            lv_obj_set_width(sub, 190);
+            lv_obj_set_pos(sub, 48, 37);
+
+            if (k > 0) {   // Tiger Scale stays first: no arrows, no switch
+                smallBtn(row, LV_SYMBOL_UP,   244, k > 1, (intptr_t)(TP_UP << 8 | k));
+                smallBtn(row, LV_SYMBOL_DOWN, 286, k < kLauncherToolCount - 1, (intptr_t)(TP_DOWN << 8 | k));
+            }
+            lv_obj_t *sw = lv_switch_create(row);
+            lv_obj_set_size(sw, 50, 28);
+            lv_obj_align(sw, LV_ALIGN_RIGHT_MID, -8, 0);
+            lv_obj_set_style_bg_color(sw, LVCOL_GREEN, LV_PART_INDICATOR | LV_STATE_CHECKED);
+            if (toolShown(i)) lv_obj_add_state(sw, LV_STATE_CHECKED);
+            if (k == 0) lv_obj_add_state(sw, LV_STATE_DISABLED);
+            else {
+                lv_obj_set_user_data(sw, (void *)(intptr_t)(TP_TOGGLE << 8 | k));
+                lv_obj_add_event_cb(sw, actCb, LV_EVENT_VALUE_CHANGED, nullptr);
+            }
+        }
+        lvglAddScrollRail(scr, list, 57, 312, 2 * (ROW_H + 6));
+        lv_obj_update_layout(list);
+        lv_obj_scroll_to_y(list, scrollY, LV_ANIM_OFF);
+
+        lv_scr_load(scr);
+        if (prevScr) { lv_obj_del(prevScr); prevScr = nullptr; }
+        else lvglDrainPress(800);
+
+        bool rebuild = false;
+        while (!rebuild) {
+            lv_timer_handler();
+            delay(5);
+            wifiKeepAlive();
+            if (gToolsChanged) { gToolsChanged = false; rebuild = true; }   // USB / web, while open
+            if (sAct == TP_NONE) continue;
+            if (sAct == TP_BACK) break;
+            int k = sArg;
+            uint8_t order[32];
+            memcpy(order, gToolOrder, kLauncherToolCount);
+            uint32_t mask = gToolsHiddenMask;
+            if (sAct == TP_TOGGLE) mask ^= 1u << order[k];
+            else {
+                int j = sAct == TP_UP ? k - 1 : k + 1;
+                if (j >= 1 && j < kLauncherToolCount) { uint8_t x = order[k]; order[k] = order[j]; order[j] = x; }
+            }
+            toolsSave(mask, order);
+            gToolsChanged = false;
+            // A switch already shows its new state; only a move needs a new list.
+            if (sAct == TP_TOGGLE) { sAct = TP_NONE; continue; }
+            rebuild = true;
+        }
+        scrollY = lv_obj_get_scroll_y(list);
+        if (!rebuild) {
+            lv_scr_load(backTo);
+            lv_obj_del(scr);
+            lvglDrainPress(800);
+            return;
+        }
+        prevScr = scr;
+    }
+}
+
 static void runLauncher() {
     if (!lvglReady) return;
     if (lvScreen == nullptr) lvglBuildMainScreen();   // the tools' wizards exit onto it
+    toolsLoad();
+    bool force = gLauncherForce;
+    gLauncherForce = false;
+    // Only Tiger Scale shown: a menu of one is a needless tap at every boot.
+    // Settings -> Tools still opens it, which is how the owner gets the others back.
+    if (!force && toolsShownCount() <= 1) {
+        lv_scr_load(lvScreen);
+        return;
+    }
 
     static int sPick;
     auto cb = [](lv_event_t *e) {
@@ -8910,7 +9252,23 @@ static void runLauncher() {
         lv_label_set_text(ver, "v" TIGERSCALE_FW_VERSION);
         lv_obj_set_style_text_color(ver, LVCOL_FAINT, 0);
         lv_obj_set_style_text_font(ver, &gFont14, 0);
-        lv_obj_align(ver, LV_ALIGN_TOP_RIGHT, -16, 17);
+        lv_obj_align(ver, LV_ALIGN_TOP_RIGHT, -60, 17);
+        // The eye: which tools this menu shows.
+        lv_obj_t *eye = lv_btn_create(scr);
+        lv_obj_set_size(eye, 44, 40);
+        lv_obj_set_pos(eye, 432, 4);
+        lv_obj_set_style_bg_color(eye, LVCOL_CARD, 0);
+        lv_obj_set_style_border_color(eye, LVCOL_BORDER, 0);
+        lv_obj_set_style_border_width(eye, 1, 0);
+        lv_obj_set_style_radius(eye, 10, 0);
+        lv_obj_set_style_shadow_width(eye, 0, 0);
+        lv_obj_set_user_data(eye, (void *)(intptr_t)-3);
+        lv_obj_add_event_cb(eye, cb, LV_EVENT_CLICKED, nullptr);
+        lv_obj_t *eyeIc = lv_label_create(eye);
+        lv_label_set_text(eyeIc, LV_SYMBOL_EYE_OPEN);
+        lv_obj_set_style_text_color(eyeIc, LVCOL_TEXT, 0);
+        lv_obj_set_style_text_font(eyeIc, &lv_font_montserrat_20, 0);
+        lv_obj_center(eyeIc);
         lv_obj_t *div = lv_obj_create(scr);
         lv_obj_remove_style_all(div);
         lv_obj_set_size(div, 480, 1);
@@ -8931,7 +9289,9 @@ static void runLauncher() {
         lv_obj_set_scroll_dir(list, LV_DIR_VER);
         lvglStyleScrollbar(list);
 
-        for (int i = 0; i < kLauncherToolCount; i++) {
+        for (int k = 0; k < kLauncherToolCount; k++) {
+            int i = gToolOrder[k];
+            if (!toolShown(i)) continue;
             const LauncherTool &tool = kLauncherTools[i];
             lv_obj_t *row = lv_btn_create(list);
             lv_obj_set_size(row, LV_PCT(100), 76);
@@ -8977,7 +9337,12 @@ static void runLauncher() {
         if (prevScr) { lv_obj_del(prevScr); prevScr = nullptr; }
         lvglDrainPress(800);
 
-        while (sPick < 0) { lv_timer_handler(); delay(5); wifiKeepAlive(); }
+        while (sPick == -1) {
+            lv_timer_handler(); delay(5); wifiKeepAlive();
+            if (gToolsChanged) { gToolsChanged = false; sPick = -2; }   // USB command: rebuild
+        }
+        if (sPick == -2) { prevScr = scr; continue; }
+        if (sPick == -3) { runToolPicker(scr); gToolsChanged = false; prevScr = scr; continue; }
 
         const LauncherTool &tool = kLauncherTools[sPick];
         if (!tool.run) {
@@ -9418,7 +9783,7 @@ static void runSettingsMenu() {
 
         if (sAction == SA_BACK) { lv_scr_load(lvScreen); lv_obj_del(scr); break; }
         // Leave Settings entirely; loop() opens the launcher from its top level.
-        if (sAction == SA_TOOLS) { gLauncherRequested = true; lv_scr_load(lvScreen); lv_obj_del(scr); break; }
+        if (sAction == SA_TOOLS) { gLauncherRequested = true; gLauncherForce = true; lv_scr_load(lvScreen); lv_obj_del(scr); break; }
 
         switch (sAction) {
             case SA_WIFI: {
@@ -12616,6 +12981,40 @@ void setupWebServer() {
             request->beginResponse_P(200, "text/html; charset=utf-8", PRESSE_PAGE);
         r->addHeader("Cache-Control", "no-store");
         request->send(r);
+    });
+    // The start menu's tools, from a browser (tools_page.h).
+    server.on("/tools", HTTP_GET, [](AsyncWebServerRequest *request){
+        AsyncWebServerResponse *r =
+            request->beginResponse_P(200, "text/html; charset=utf-8", TOOLS_PAGE);
+        r->addHeader("Cache-Control", "no-store");
+        request->send(r);
+    });
+    server.on("/api/tools", HTTP_GET, [](AsyncWebServerRequest *request){
+        toolsLoad();
+        StaticJsonDocument<2048> doc;
+        JsonArray arr = doc.createNestedArray("tools");
+        for (int k = 0; k < kLauncherToolCount; k++) {
+            int i = gToolOrder[k];
+            const LauncherTool &tool = kLauncherTools[i];
+            JsonObject o = arr.createNestedObject();
+            o["id"]    = tool.id;
+            o["name"]  = tool.fixedName ? tool.fixedName : t(tool.nameKey);
+            o["sub"]   = t(tool.subKey);
+            o["shown"] = toolShown(i);
+        }
+        String out;
+        serializeJson(doc, out);
+        AsyncWebServerResponse *r = request->beginResponse(200, "application/json", out);
+        r->addHeader("Cache-Control", "no-store");
+        request->send(r);
+    });
+    server.on("/api/tools", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("shown", true) || !request->hasParam("order", true)) {
+            request->send(400, "text/plain", "shown and order are required"); return;
+        }
+        toolsApply(request->getParam("shown", true)->value().c_str(),
+                   request->getParam("order", true)->value().c_str());
+        request->send(200, "text/plain", "OK");
     });
     server.on("/api/presse/reset", HTTP_POST, [](AsyncWebServerRequest *request){
         const char *def = presseDefaults();
@@ -17826,6 +18225,7 @@ void setup() {
     { uint32_t _t = millis(); while (!Serial && millis() - _t < 4000) delay(10); }
 #endif
     Serial.println("[BOOT] setup() start");
+    xTaskCreatePinnedToCore(toolsSerialTask, "toolsSerial", 4096, nullptr, 1, nullptr, 0);
     Serial.printf("[BOOT] reset reason=%d\n", (int)esp_reset_reason());
     if (LED_PIN >= 0) pinMode(LED_PIN, OUTPUT);
     #if !RFID_DIAG_DISABLE_DISPLAY_STACK

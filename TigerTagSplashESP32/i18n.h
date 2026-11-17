@@ -191,6 +191,8 @@ enum LangKey : uint8_t {
     I18N_POD_WRITTEN,
     I18N_POD_FAILED,
     I18N_POD_HINT,
+    I18N_TOOLS_SHOWN,
+    I18N_TOOLS_ALWAYS,
     I18N_COUNT,
 };
 
@@ -359,6 +361,8 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_WRITTEN     */ "Chip written",
         /* POD_FAILED      */ "Failed",
         /* POD_HINT        */ "Open Tiger Studio on this network, signed in to the scale's account",
+        /* TOOLS_SHOWN     */ "Shown tools",
+        /* TOOLS_ALWAYS    */ "Always on the menu",
     },
     // PT (Brazilian Portuguese — Studio's "pt")
     {
@@ -521,6 +525,8 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_WRITTEN     */ "Chip gravado",
         /* POD_FAILED      */ "Falhou",
         /* POD_HINT        */ "Abra o Tiger Studio nesta rede, na conta da balança",
+        /* TOOLS_SHOWN     */ "Ferramentas exibidas",
+        /* TOOLS_ALWAYS    */ "Sempre no menu",
     },
     // FR
     {
@@ -683,6 +689,8 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_WRITTEN     */ "Puce écrite",
         /* POD_FAILED      */ "Échec",
         /* POD_HINT        */ "Ouvrez Tiger Studio sur ce réseau, avec le compte de la balance",
+        /* TOOLS_SHOWN     */ "Outils affichés",
+        /* TOOLS_ALWAYS    */ "Toujours dans le menu",
     },
     // ES
     {
@@ -845,6 +853,8 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_WRITTEN     */ "Chip escrito",
         /* POD_FAILED      */ "Error",
         /* POD_HINT        */ "Abre Tiger Studio en esta red, con la cuenta de la báscula",
+        /* TOOLS_SHOWN     */ "Herramientas visibles",
+        /* TOOLS_ALWAYS    */ "Siempre en el menú",
     },
     // DE
     {
@@ -1007,6 +1017,8 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_WRITTEN     */ "Chip geschrieben",
         /* POD_FAILED      */ "Fehlgeschlagen",
         /* POD_HINT        */ "Tiger Studio in diesem Netz mit dem Konto der Waage öffnen",
+        /* TOOLS_SHOWN     */ "Angezeigte Werkzeuge",
+        /* TOOLS_ALWAYS    */ "Immer im Menü",
     },
     // ZH (Han characters, not pinyin)
     // The glyphs come from a generated subset font — scripts/make-cjk-font.sh —
@@ -1175,6 +1187,8 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_WRITTEN     */ "芯片已写入",
         /* POD_FAILED      */ "失败",
         /* POD_HINT        */ "在同一网络中用此秤的账户打开 Tiger Studio",
+        /* TOOLS_SHOWN     */ "显示的工具",
+        /* TOOLS_ALWAYS    */ "始终在菜单中",
     },
     // IT
     {
@@ -1337,6 +1351,8 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_WRITTEN     */ "Chip scritto",
         /* POD_FAILED      */ "Non riuscito",
         /* POD_HINT        */ "Apri Tiger Studio su questa rete, con l'account della bilancia",
+        /* TOOLS_SHOWN     */ "Strumenti visibili",
+        /* TOOLS_ALWAYS    */ "Sempre nel menu",
     },
     // PL
     {
@@ -1499,6 +1515,8 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_WRITTEN     */ "Chip zapisany",
         /* POD_FAILED      */ "Błąd",
         /* POD_HINT        */ "Otwórz Tiger Studio w tej sieci, na koncie wagi",
+        /* TOOLS_SHOWN     */ "Widoczne narzędzia",
+        /* TOOLS_ALWAYS    */ "Zawsze w menu",
     },
     // PT-PT (European Portuguese — Studio's "pt-pt")
     {
@@ -1661,6 +1679,8 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_WRITTEN     */ "Chip gravado",
         /* POD_FAILED      */ "Falhou",
         /* POD_HINT        */ "Abra o Tiger Studio nesta rede, com a conta da balança",
+        /* TOOLS_SHOWN     */ "Ferramentas mostradas",
+        /* TOOLS_ALWAYS    */ "Sempre no menu",
     },
     // RU (Russian — Studio's "ru")
     {
@@ -1823,6 +1843,8 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_WRITTEN     */ "Чип записан",
         /* POD_FAILED      */ "Ошибка",
         /* POD_HINT        */ "Откройте Tiger Studio в этой сети под аккаунтом весов",
+        /* TOOLS_SHOWN     */ "Показанные инструменты",
+        /* TOOLS_ALWAYS    */ "Всегда в меню",
     },
     // NL (Dutch — Studio's "nl")
     {
@@ -1985,6 +2007,8 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_WRITTEN     */ "Chip geschreven",
         /* POD_FAILED      */ "Mislukt",
         /* POD_HINT        */ "Open Tiger Studio op dit netwerk, met het account van de weegschaal",
+        /* TOOLS_SHOWN     */ "Getoonde tools",
+        /* TOOLS_ALWAYS    */ "Altijd in het menu",
     },
 };
 

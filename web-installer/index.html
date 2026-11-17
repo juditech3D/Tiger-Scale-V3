@@ -1,752 +1,570 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Make &amp; Install TigerScale V3 — open-source filament scale</title>
-<meta name="description" content="Build a TigerScale V3 and flash it from your browser: parts list with links, the wiring, and a one-click installer. No toolchain, no command line.">
-<!-- Discord and Slack print og:site_name above the title; without it the card
-     is anonymous. The dimensions let them reserve the space before the image
-     has loaded, so the card does not reflow under the reader. -->
-<meta property="og:site_name" content="TigerTag Project">
-<meta property="og:locale" content="en">
-<meta property="og:title" content="Make &amp; Install TigerScale V3">
-<meta property="og:description" content="Parts list, wiring diagram and a one-click browser installer for the connected filament scale.">
-<meta property="og:type" content="website">
-<meta property="og:image" content="https://tigersystem.io/en/tigerscale/opengraph-image">
-<meta property="og:image:type" content="image/png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="TigerScale, the connected scale that weighs a spool and reads its TigerTag chip">
-<meta property="og:url" content="https://tigertag-project.github.io/Tiger-Scale-V3/">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="https://tigersystem.io/en/tigerscale/opengraph-image">
-<meta name="theme-color" content="#0a0b0f">
-<link rel="canonical" href="https://tigertag-project.github.io/Tiger-Scale-V3/">
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  "name": "TigerScale V3 firmware",
-  "applicationCategory": "DeveloperApplication",
-  "operatingSystem": "ESP32-S3",
-  "description": "Open-source firmware for a connected 3D-printing filament scale. Reads a TigerTag NFC tag, weighs the spool, subtracts the empty spool weight and reports the net filament remaining.",
-  "license": "https://opensource.org/licenses/MIT",
-  "url": "https://tigertag-project.github.io/Tiger-Scale-V3/",
-  "codeRepository": "https://github.com/TigerTag-Project/Tiger-Scale-V3",
-  "programmingLanguage": "C++",
-  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
-  "author": { "@type": "Organization", "name": "TigerTag Project", "url": "https://tigersystem.io" }
-}
-</script>
-<link rel="icon" href="favicon.png" type="image/png">
+<title>Tiger Multi-tools — firmware multi-outils pour balance TigerScale V3</title>
+<meta name="description" content="Un firmware non officiel pour la balance TigerScale V3 : la pesée des bobines plus des outils au choix (TigerPOD, pèse-colis, calibration, mémo presse), installé depuis le navigateur.">
+<meta name="theme-color" content="#0d0f14">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
 <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
-<script src="i18n.js"></script>
-
-<!-- Resolve the theme before first paint. Left to the stylesheet alone, a visitor
-     whose stored choice differs from their OS setting sees the wrong palette flash. -->
+<script src="tools.js"></script>
 <script>
+  // The product's name in one place: the header and the texts all read it, so
+  // renaming the fork is this line (and the <title> above).
+  window.PRODUCT = 'Tiger Multi-tools';
   (function () {
     try {
-      var t = localStorage.getItem('tigerscale-theme');
+      var t = localStorage.getItem('mt-theme');
       if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
     } catch (e) {}
   })();
 </script>
-
 <style>
-  /* Palette from Tiger Hub's design tokens (lib/tokens.ts) — the brand is orange,
-     the ember red is an accent, and the dark ground is a cool near-black. */
-  /* Dark is the default, deliberately: it is the brand's own ground and it is what
-     the page shows before any preference is known. Light is opt-in through the
-     switch, and only then is the choice remembered. */
   :root {
-    --brand:#ff7a18; --brand-hover:#e96900; --ember:#e6352b;
-    --success:#1aaf6c; --warn:#d29922;
-
-    --bg:#0a0b0f; --bg-alt:#12141b; --panel:#12141b; --panel-hi:#1a1d27;
-    --line:#262a36; --fg:#f4f5f8; --muted:#9aa0b0; --faint:#838b9b;
-    --link:#ff7a18; --glow:rgba(255,122,24,.20);
-    --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 40px rgba(0,0,0,.45);
-    --ring:rgba(255,122,24,.30); --scheme:dark;
+    --accent:#ff7a18; --accent-strong:#e96900; --ok:#1aaf6c; --bad:#e6352b;
+    --bg:#0d0f14; --bg-alt:#13161d; --panel:#161a22; --panel-hi:#1d222c;
+    --line:#2a303c; --fg:#f2f4f8; --muted:#a0a7b5; --faint:#7f8796;
+    --link:#ff9a4d; --shadow:0 1px 2px rgba(0,0,0,.4), 0 14px 40px rgba(0,0,0,.35);
+    color-scheme:dark;
   }
-  :root[data-theme="light"] {
-    --bg:#ffffff; --bg-alt:#f1f3f9; --panel:#ffffff; --panel-hi:#f7f8fc;
-    --line:#e3e6ef; --fg:#1c2030; --muted:#6b7287; --faint:#8b91a5;
-    /* #ff7a18 on white is 2.6:1 — below AA. Links get a darkened orange instead. */
-    --link:#c25400;
-    --glow:rgba(255,122,24,.14);
-    --shadow:0 1px 2px rgba(28,32,48,.06), 0 8px 28px rgba(28,32,48,.07);
-    --ring:rgba(255,122,24,.22);
-    --scheme:light;
-  }
-
-  * { box-sizing:border-box; }
-  html { color-scheme:var(--scheme); }
-  body {
-    margin:0; padding:0 1.15rem 4rem; background:var(--bg); color:var(--fg);
-    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    -webkit-font-smoothing:antialiased;
-    transition:background-color .18s ease, color .18s ease;
-  }
-  a { color:var(--link); text-underline-offset:3px; }
-  a:hover { color:var(--brand-hover); }
-  .wrap { max-width:1120px; margin:0 auto; }
-
-  /* --- top bar ------------------------------------------------------------ */
-  .top {
-    display:flex; align-items:center; justify-content:space-between; gap:1rem;
-    padding:1.1rem 0 .4rem;
-  }
-  /* One mark for both themes. The tiger sits on its own dark tile, so it reads
-     identically on either ground — swapping in an inverted copy would change the
-     logo's colours, which the brand does not do. */
-  .top img { height:30px; width:auto; display:block; border-radius:7px; }
-  .tools { display:flex; align-items:center; gap:.7rem; }
-
-  /* Language menu. A native <select> cannot be styled below its border on any
-     desktop browser — the popup is drawn by the OS — so the list is ours. */
-  .langbox { position:relative; }
-  .langbtn {
-    display:inline-flex; align-items:center; gap:.5rem;
-    background:var(--panel); color:var(--fg); border:1px solid var(--line);
-    border-radius:999px; padding:.4rem .85rem; font-size:.86rem; font-family:inherit;
-    cursor:pointer; line-height:1.2;
-    transition:border-color .15s ease, background-color .15s ease;
-  }
-  .langbtn:hover { border-color:var(--brand); }
-  .langbtn .globe { width:15px; height:15px; color:var(--muted); flex:0 0 auto; }
-  .langbtn .caret {
-    width:0; height:0; flex:0 0 auto; margin-left:.1rem;
-    border-left:4px solid transparent; border-right:4px solid transparent;
-    border-top:5px solid var(--muted); transition:transform .18s ease;
-  }
-  .langbox[data-open="1"] .langbtn { border-color:var(--brand); }
-  .langbox[data-open="1"] .caret { transform:rotate(180deg); }
-
-  .langmenu {
-    position:absolute; top:calc(100% + .5rem); right:0; z-index:40;
-    min-width:190px; padding:.35rem; margin:0; list-style:none;
-    background:var(--panel); border:1px solid var(--line); border-radius:14px;
-    box-shadow:var(--shadow);
-    opacity:0; transform:translateY(-4px); pointer-events:none;
-    transition:opacity .15s ease, transform .15s ease;
-  }
-  .langbox[data-open="1"] .langmenu { opacity:1; transform:none; pointer-events:auto; }
-  .langmenu li {
-    display:flex; align-items:center; justify-content:space-between; gap:.75rem;
-    padding:.5rem .7rem; border-radius:9px; cursor:pointer; font-size:.88rem;
-    color:var(--fg);
-  }
-  .langmenu li:hover, .langmenu li:focus-visible { background:var(--panel-hi); outline:none; }
-  .langmenu li[aria-selected="true"] { color:var(--brand); font-weight:600; }
-  .langmenu li .tick { width:14px; height:14px; opacity:0; flex:0 0 auto; }
-  .langmenu li[aria-selected="true"] .tick { opacity:1; }
-
-  /* Day/night switch. A real sliding toggle rather than an icon that swaps —
-     the position itself says which mode you are in. */
-  .switch { display:inline-flex; align-items:center; cursor:pointer; }
-  .switch input { position:absolute; opacity:0; width:0; height:0; }
-  .track {
-    position:relative; width:62px; height:32px; border-radius:999px;
-    background:var(--bg-alt); border:1px solid var(--line);
-    transition:background-color .2s ease, border-color .2s ease;
-  }
-  /* The icon rides inside the knob rather than sitting at the ends of the track:
-     at the ends the knob covers whichever one is active, which is precisely the
-     one the visitor needs to see. */
-  .knob {
-    position:absolute; top:2px; left:2px; width:26px; height:26px; border-radius:999px;
-    background:#fff; box-shadow:0 1px 4px rgba(0,0,0,.28);
-    display:grid; place-items:center;
-    transition:transform .22s cubic-bezier(.4,0,.2,1), background-color .2s ease;
-  }
-  .knob .ico { width:14px; height:14px; color:var(--warn); }
-  .knob .ico.moon { display:none; }
-  .switch input:focus-visible + .track { box-shadow:0 0 0 3px var(--ring); }
-  .switch[data-on="dark"] .track { background:var(--panel-hi); border-color:var(--brand); }
-  .switch[data-on="dark"] .knob { transform:translateX(30px); background:var(--brand); }
-  .switch[data-on="dark"] .knob .ico.sun  { display:none; }
-  .switch[data-on="dark"] .knob .ico.moon { display:block; color:#fff; }
-
-  /* --- hero --------------------------------------------------------------- */
-  header.hero {
-    position:relative; text-align:center; padding:2.6rem 0 2.2rem; overflow:hidden;
-  }
-  header.hero::before {
-    content:""; position:absolute; left:50%; top:-120px; transform:translateX(-50%);
-    width:680px; height:460px; pointer-events:none;
-    background:radial-gradient(closest-side, var(--glow), transparent 72%);
-  }
-  header.hero > * { position:relative; }
-  .shot { width:min(300px,64vw); height:auto; display:block; margin:0 auto 1.2rem; }
-  h1 {
-    font-size:clamp(2rem, 5.2vw, 2.9rem); line-height:1.1; margin:0 0 .6rem;
-    letter-spacing:-.03em; font-weight:700;
-  }
-  h1 .accent {
-    background:linear-gradient(96deg, var(--brand), var(--ember));
-    -webkit-background-clip:text; background-clip:text; color:transparent;
-  }
-  .tagline { color:var(--muted); margin:0 auto; max-width:34rem; font-size:1.03rem; }
-  .verpill {
-    display:inline-flex; align-items:center; gap:.5rem; margin-top:1.25rem;
-    padding:.34rem .8rem .34rem .6rem; border-radius:999px;
-    border:1px solid var(--line); background:var(--panel);
-    font-size:.82rem; color:var(--muted); box-shadow:var(--shadow);
-  }
-  /* An author `display` beats the UA stylesheet's [hidden] rule, so the pill would
-     show empty until version.json resolves — or for ever if the fetch fails. */
-  .verpill[hidden] { display:none; }
-  .verpill .dot {
-    width:7px; height:7px; border-radius:50%; background:var(--success);
-    box-shadow:0 0 0 3px color-mix(in srgb, var(--success) 22%, transparent);
-  }
-  .verpill b { color:var(--fg); font-weight:600; }
-
-  /* --- two-column layout -------------------------------------------------- */
-  .cols { display:grid; grid-template-columns:1fr; gap:1.6rem; align-items:start; }
-  @media (min-width:1000px) {
-    .cols { grid-template-columns:minmax(0,1fr) 310px; gap:2.2rem; }
-    aside.cart { position:sticky; top:1.2rem; }
-  }
-
-  /* --- sections ----------------------------------------------------------- */
-  .step { display:flex; align-items:center; gap:.7rem; margin:2.2rem 0 .9rem; }
-  .step:first-child { margin-top:0; }
-  .step .n {
-    flex:0 0 auto; width:25px; height:25px; border-radius:999px;
-    display:grid; place-items:center; font-size:.8rem; font-weight:700;
-    background:var(--brand); color:#fff;
-  }
-  .step h2 { font-size:1.12rem; margin:0; letter-spacing:-.01em; font-weight:650; }
-
-  .panel {
-    background:var(--panel); border:1px solid var(--line); border-radius:20px;
-    padding:1.4rem; box-shadow:var(--shadow);
-  }
-  .lede { margin:0 0 1.1rem; color:var(--muted); font-size:.94rem; }
-
-  /* --- checklist ---------------------------------------------------------- */
-  ul.need { margin:0; padding:0; list-style:none; }
-  ul.need li {
-    position:relative; padding:0 0 .7rem 1.85rem; color:var(--muted); font-size:.94rem;
-  }
-  ul.need li:last-child { padding-bottom:0; }
-  ul.need li::before {
-    content:""; position:absolute; left:0; top:.42rem; width:9px; height:5px;
-    border-left:2px solid var(--success); border-bottom:2px solid var(--success);
-    transform:rotate(-45deg);
-  }
-
-  /* --- transport chooser -------------------------------------------------- */
-  .choice { display:grid; gap:.7rem; }
-  label.opt {
-    display:flex; gap:.9rem; align-items:flex-start; padding:1rem 1.1rem;
-    border:1px solid var(--line); border-radius:14px; cursor:pointer;
-    background:var(--bg-alt);
-    transition:border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
-  }
-  label.opt:hover { border-color:color-mix(in srgb, var(--brand) 55%, var(--line)); }
-  label.opt:has(input:checked) {
-    border-color:var(--brand); background:var(--panel-hi); box-shadow:0 0 0 3px var(--ring);
-  }
-  label.opt input { margin-top:.32rem; accent-color:var(--brand); flex:0 0 auto; }
-  .opt b { display:block; margin-bottom:.15rem; font-weight:650; }
-  .opt small { color:var(--muted); display:block; line-height:1.55; }
-  .badge {
-    display:inline-block; font-size:.68rem; font-weight:600; letter-spacing:.02em;
-    padding:.12rem .5rem; border-radius:999px; border:1px solid var(--line);
-    color:var(--muted); margin-left:.45rem; vertical-align:1px; text-transform:uppercase;
-  }
-  .badge.ok { color:var(--success); border-color:color-mix(in srgb, var(--success) 45%, transparent); }
-
-  /* --- wiring diagram ----------------------------------------------------- */
-  details.wiring { margin-top:1.1rem; }
-  details.wiring > summary {
-    cursor:pointer; list-style:none; display:inline-flex; align-items:center; gap:.5rem;
-    font-size:.9rem; font-weight:600; color:var(--link);
-  }
-  details.wiring > summary::-webkit-details-marker { display:none; }
-  details.wiring > summary::before {
-    content:""; width:0; height:0; border-left:5px solid currentColor;
-    border-top:4px solid transparent; border-bottom:4px solid transparent;
-    transition:transform .18s ease;
-  }
-  details.wiring[open] > summary::before { transform:rotate(90deg); }
-  .frame {
-    position:relative; width:100%; padding-top:calc(max(56.25%, 400px));
-    margin-top:.9rem; border:1px solid var(--line); border-radius:14px;
-    overflow:hidden; background:var(--bg-alt);
-  }
-  .frame iframe { position:absolute; inset:0; width:100%; height:100%; border:none; }
-  .credit { margin:.6rem 0 0; font-size:.82rem; color:var(--faint); }
-
-  /* --- install ------------------------------------------------------------ */
-  .cta { text-align:center; margin:.3rem 0 .4rem; }
-  /* The --esp-tools-button-* variables only style the component's OWN default
-     button. The moment you pass a <button slot="activate">, that button is yours
-     and arrives completely unstyled — which is why this looked like plain text
-     rather than the one thing on the page you are meant to press. */
-  esp-web-install-button button[slot="activate"] {
-    display:inline-flex; align-items:center; justify-content:center; gap:.6rem;
-    padding:1.15rem 2.8rem; font-family:inherit; font-size:1.18rem; font-weight:700;
-    letter-spacing:-.01em; color:#fff; cursor:pointer;
-    border:none; border-radius:999px;
-    background:linear-gradient(96deg, var(--brand), var(--ember));
-    box-shadow:0 6px 22px rgba(255,122,24,.34), 0 1px 2px rgba(0,0,0,.3);
-    transition:transform .14s ease, box-shadow .18s ease, filter .18s ease;
-  }
-  esp-web-install-button button[slot="activate"]:hover {
-    transform:translateY(-2px); filter:brightness(1.06);
-    box-shadow:0 10px 30px rgba(255,122,24,.44), 0 1px 2px rgba(0,0,0,.3);
-  }
-  esp-web-install-button button[slot="activate"]:active { transform:translateY(0); }
-  esp-web-install-button button[slot="activate"]:focus-visible {
-    outline:3px solid var(--ring); outline-offset:3px;
-  }
-  /* A slow pulse on the ring, so the eye lands here first. */
-  @media (prefers-reduced-motion: no-preference) {
-    esp-web-install-button button[slot="activate"] { animation:ctaPulse 2.8s ease-in-out infinite; }
-    @keyframes ctaPulse {
-      0%, 100% { box-shadow:0 6px 22px rgba(255,122,24,.34), 0 0 0 0 rgba(255,122,24,.42); }
-      55%      { box-shadow:0 6px 22px rgba(255,122,24,.34), 0 0 0 14px rgba(255,122,24,0); }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg:#ffffff; --bg-alt:#f3f5fa; --panel:#ffffff; --panel-hi:#f6f7fb;
+      --line:#e2e5ee; --fg:#1b1f2c; --muted:#5f6679; --faint:#7d8497;
+      --link:#b84f00; --shadow:0 1px 2px rgba(27,31,44,.06), 0 10px 30px rgba(27,31,44,.08);
+      color-scheme:light;
     }
   }
-  .cta small { display:block; margin-top:1rem; color:var(--faint); font-size:.82rem; }
+  :root[data-theme="light"] {
+    --bg:#ffffff; --bg-alt:#f3f5fa; --panel:#ffffff; --panel-hi:#f6f7fb;
+    --line:#e2e5ee; --fg:#1b1f2c; --muted:#5f6679; --faint:#7d8497;
+    --link:#b84f00; --shadow:0 1px 2px rgba(27,31,44,.06), 0 10px 30px rgba(27,31,44,.08);
+    color-scheme:light;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; padding:0 16px 64px; background:var(--bg); color:var(--fg);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  a { color:var(--link); text-underline-offset:3px; }
+  .wrap { max-width:1040px; margin:0 auto; }
+  button { font:inherit; }
 
-  /* --- callout ------------------------------------------------------------ */
-  .note {
-    display:flex; gap:.9rem; margin:1.5rem 0 0;
-    border:1px solid color-mix(in srgb, var(--warn) 38%, var(--line));
-    background:color-mix(in srgb, var(--warn) 7%, var(--panel));
-    border-radius:14px; padding:1rem 1.1rem; color:var(--muted); font-size:.93rem;
+  /* top bar */
+  .top { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 0 8px; }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:.2px; }
+  .brand .mark { width:30px; height:30px; border-radius:8px; background:var(--accent); display:grid; place-items:center; color:#fff; }
+  .brand .mark svg { width:18px; height:18px; }
+  .controls { display:flex; gap:8px; }
+  .pill-btn {
+    background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:999px;
+    padding:6px 12px; font-size:14px; cursor:pointer; line-height:1.2;
   }
-  .note svg { flex:0 0 auto; width:18px; height:18px; margin-top:.18rem; color:var(--warn); }
-  .note b { color:var(--fg); }
-  .note p { margin:.35rem 0 0; }
+  .pill-btn:hover { border-color:var(--accent); }
+  .pill-btn[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:#fff; }
 
-  code {
-    background:var(--bg-alt); border:1px solid var(--line); border-radius:6px;
-    padding:.1rem .38rem; font-size:.88em;
-    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  /* hero */
+  .hero { padding:48px 0 28px; }
+  .hero h1 { font-size:clamp(32px, 6vw, 52px); line-height:1.1; margin:0 0 14px; letter-spacing:-.5px; }
+  .hero h1 .name { color:var(--accent); }
+  .hero p.lede { font-size:clamp(17px, 2.2vw, 20px); color:var(--muted); max-width:700px; margin:0 0 22px; }
+  .hero .cta { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .btn {
+    display:inline-flex; align-items:center; gap:8px; border-radius:12px; padding:12px 20px;
+    border:1px solid var(--accent); background:var(--accent); color:#fff; font-weight:600; text-decoration:none; cursor:pointer;
+  }
+  .btn:hover { background:var(--accent-strong); border-color:var(--accent-strong); color:#fff; }
+  .btn.ghost { background:transparent; color:var(--fg); border-color:var(--line); }
+  .btn.ghost:hover { border-color:var(--accent); color:var(--fg); }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .ver { font-size:13px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:4px 10px; }
+  .notice {
+    margin-top:22px; padding:12px 14px; border-radius:12px; background:var(--bg-alt);
+    border:1px solid var(--line); color:var(--muted); font-size:14px; max-width:760px;
   }
 
-  /* --- after -------------------------------------------------------------- */
-  ol.after { margin:0; padding:0; list-style:none; counter-reset:s; }
-  ol.after li {
-    counter-increment:s; position:relative; padding:0 0 1.05rem 2.1rem;
-    color:var(--muted); font-size:.95rem;
-  }
-  ol.after li:last-child { padding-bottom:0; }
-  ol.after li::before {
-    content:counter(s); position:absolute; left:0; top:.05rem;
-    width:21px; height:21px; border-radius:999px; display:grid; place-items:center;
-    font-size:.72rem; font-weight:700; color:var(--muted);
-    background:var(--bg-alt); border:1px solid var(--line);
-  }
-  ol.after b { color:var(--fg); font-weight:600; }
+  /* sections */
+  section { padding:34px 0 8px; }
+  h2 { font-size:clamp(24px, 3.4vw, 30px); margin:0 0 6px; letter-spacing:-.3px; }
+  .sub { color:var(--muted); margin:0 0 22px; max-width:720px; }
 
-  /* --- shopping list ------------------------------------------------------ */
-  aside.cart .panel { padding:1.15rem; }
-  .cart h2 {
-    font-size:1rem; margin:0 0 .25rem; font-weight:650; letter-spacing:-.01em;
-    display:flex; align-items:center; gap:.5rem;
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:14px; }
+  .card {
+    background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:18px;
+    box-shadow:var(--shadow);
   }
-  .cart h2 svg { width:17px; height:17px; color:var(--brand); }
-  .cart .lede { font-size:.8rem; margin-bottom:.9rem; line-height:1.5; }
-  ul.parts { margin:0; padding:0; list-style:none; }
-  ul.parts li {
-    display:flex; gap:.6rem; align-items:baseline;
-    padding:.6rem 0; border-top:1px solid var(--line); font-size:.87rem;
-  }
-  ul.parts li:first-child { border-top:none; padding-top:0; }
-  ul.parts .q {
-    flex:0 0 auto; min-width:1.6rem; font-variant-numeric:tabular-nums;
-    color:var(--faint); font-size:.8rem; font-weight:600;
-  }
-  ul.parts .nm { flex:1 1 auto; }
-  ul.parts .nm em { display:block; font-style:normal; color:var(--faint); font-size:.76rem; }
-  ul.parts a.buy {
-    flex:0 0 auto; font-size:.76rem; font-weight:600; text-decoration:none;
-    border:1px solid var(--line); border-radius:999px; padding:.16rem .6rem;
-    color:var(--link); transition:border-color .15s ease, background-color .15s ease;
-  }
-  ul.parts a.buy:hover { border-color:var(--brand); background:var(--panel-hi); }
-  ul.parts .buy-group { display:flex; flex-direction:column; gap:.32rem; flex:0 0 auto; }
-  ul.parts .buy-group a.buy { text-align:center; }
-  .cart .foot { margin:.9rem 0 0; font-size:.78rem; color:var(--faint); line-height:1.55; }
-  .cart .foot p { margin:.35rem 0 0; }
+  .card .ic { width:42px; height:42px; border-radius:11px; display:grid; place-items:center; margin-bottom:12px; }
+  .card .ic svg { width:24px; height:24px; }
+  .card h3 { margin:0 0 6px; font-size:18px; }
+  .card p { margin:0; color:var(--muted); font-size:15px; }
+  .acc { margin-top:10px; font-size:14px; color:var(--fg); display:flex; gap:6px; align-items:flex-start; }
+  .acc svg { width:16px; height:16px; flex:0 0 auto; margin-top:3px; color:var(--accent); }
+  .acc .soon { color:var(--muted); }
+  .tag { display:inline-block; font-size:12px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:1px 8px; margin-left:6px; vertical-align:middle; font-weight:500; }
 
-  footer {
-    text-align:center; margin-top:3rem; padding-top:1.6rem;
-    border-top:1px solid var(--line); color:var(--faint); font-size:.88rem;
+  /* install steps */
+  .step { display:flex; align-items:center; gap:12px; margin:28px 0 12px; }
+  .step .n {
+    width:32px; height:32px; border-radius:50%; background:var(--accent); color:#fff;
+    display:grid; place-items:center; font-weight:700; flex:0 0 auto;
   }
-  footer nav a { margin:0 .55rem; }
-  footer p { margin:.5rem 0 0; }
+  .step h3 { margin:0; font-size:20px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:18px; box-shadow:var(--shadow); }
+  .panel > p:first-child { margin-top:0; }
+  .hint { color:var(--muted); font-size:14px; margin:10px 0 0; }
 
-  .unsupported { display:none; margin-top:1.2rem; }
-  .no-webserial .unsupported { display:block; }
-  .no-webserial .cta { display:none; }
+  .boards { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:10px; }
+  .board {
+    display:flex; gap:12px; align-items:flex-start; padding:14px; border:1px solid var(--line);
+    border-radius:12px; cursor:pointer; background:var(--panel-hi);
+  }
+  .board:has(input:checked) { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+  .board input { margin-top:4px; accent-color:var(--accent); width:18px; height:18px; }
+  .board b { display:block; }
+  .board small { color:var(--muted); }
 
-  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+  .picker { display:flex; flex-direction:column; gap:8px; }
+  .prow {
+    display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid var(--line);
+    border-radius:12px; background:var(--panel-hi);
+  }
+  .prow.off { opacity:.55; }
+  .prow input[type=checkbox] { width:22px; height:22px; accent-color:var(--accent); flex:0 0 auto; }
+  .prow .ic { width:34px; height:34px; border-radius:9px; display:grid; place-items:center; flex:0 0 auto; }
+  .prow .ic svg { width:20px; height:20px; }
+  .prow .t { flex:1; min-width:0; }
+  .prow .t b { display:block; }
+  .prow .t small { color:var(--muted); display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .arrows { display:flex; gap:6px; flex:0 0 auto; }
+  .arrows button {
+    width:38px; height:38px; border-radius:9px; border:1px solid var(--line); background:var(--panel);
+    color:var(--fg); cursor:pointer; font-size:14px;
+  }
+  .arrows button:hover:not(:disabled) { border-color:var(--accent); }
+  .arrows button:disabled { opacity:.3; cursor:default; }
+  .center { text-align:center; }
+  esp-web-install-button button {
+    border-radius:12px; padding:13px 26px; border:0; background:var(--accent); color:#fff;
+    font-weight:600; font-size:17px; cursor:pointer;
+  }
+  .status { margin-top:12px; min-height:1.6em; font-size:15px; }
+  .status.ok { color:var(--ok); }
+  .status.bad { color:var(--bad); }
+  .no-serial .needs-serial { display:none; }
+  .serial-warn { display:none; }
+  .no-serial .serial-warn { display:block; }
+
+  footer { margin-top:56px; padding-top:22px; border-top:1px solid var(--line); color:var(--faint); font-size:14px; }
+  footer p { margin:0 0 8px; }
+
+  @media (max-width:560px) {
+    .prow { gap:10px; padding:10px; }
+    .prow .ic { display:none; }
+    .arrows button { width:34px; height:34px; }
+  }
 </style>
 </head>
 <body>
-
 <div class="wrap">
-
-<div class="top">
-  <a href="https://tigersystem.io" aria-label="TigerTag">
-    <img src="tiger-icon.svg" alt="TigerTag" width="30" height="30">
-  </a>
-  <div class="tools">
-    <div class="langbox" id="langbox" data-open="0">
-      <button class="langbtn" id="langbtn" type="button" aria-haspopup="listbox"
-              aria-expanded="false" data-i18n-aria="lang_label">
-        <svg class="globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="9.2"/><path d="M2.8 12h18.4"/>
-          <path d="M12 2.8a14 14 0 0 1 0 18.4a14 14 0 0 1 0-18.4z"/>
-        </svg>
-        <span id="langnow"></span>
-        <span class="caret"></span>
-      </button>
-      <ul class="langmenu" id="langmenu" role="listbox"></ul>
-    </div>
-    <label class="switch" id="switch" data-on="light">
-      <input type="checkbox" id="theme" role="switch" aria-label="Day and night mode" data-i18n-aria="theme_label">
-      <span class="track">
-        <span class="knob">
-          <svg class="ico sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
-            <circle cx="12" cy="12" r="4.2"/>
-            <path d="M12 2.4v2.2M12 19.4v2.2M4.2 12H2M22 12h-2.2M5.6 5.6 7.2 7.2M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/>
-          </svg>
-          <svg class="ico moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M20.5 14.3A8.5 8.5 0 0 1 9.7 3.5a8.5 8.5 0 1 0 10.8 10.8z"/>
-          </svg>
-        </span>
+  <header class="top">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h10M4 17h7"/><circle cx="18" cy="16" r="3"/></svg>
       </span>
-    </label>
-  </div>
-</div>
-
-<header class="hero">
-  <img class="shot" src="tigerscale.png" alt="TigerScale V3" width="760" height="760">
-  <h1><span data-i18n="h1_install">Make &amp; Install</span> <span class="accent">TigerScale V3</span></h1>
-  <p class="tagline" data-i18n="tagline"></p>
-  <div class="verpill" id="verpill" hidden>
-    <span class="dot"></span><span><span data-i18n="fw">Firmware</span> <b id="ver"></b></span>
-  </div>
-</header>
-
-<div class="cols">
-
-<div>
-
-  <div class="step"><span class="n">1</span><h2 data-i18n="need_title"></h2></div>
-  <div class="panel">
-    <ul class="need">
-      <li data-i18n="need_1"></li>
-      <li data-i18n="need_2"></li>
-      <li data-i18n="need_3"></li>
-      <li data-i18n="need_4"></li>
-    </ul>
-  </div>
-
-  <div class="step"><span class="n">2</span><h2 data-i18n="s1_title"></h2></div>
-  <div class="panel">
-    <p class="lede" data-i18n="s1_lede"></p>
-    <div class="choice">
-      <label class="opt">
-        <input type="radio" name="env" value="esp32s3_hsu_b" checked>
-        <span>
-          <b><span data-i18n="opt_35b_n"></span><span class="badge ok" data-i18n="badge_reco"></span></b>
-          <small data-i18n="opt_35b_d"></small>
-        </span>
-      </label>
-      <label class="opt">
-        <input type="radio" name="env" value="esp32s3_hsu">
-        <span>
-          <b data-i18n="opt_35_n"></b>
-          <small data-i18n="opt_35_d"></small>
-        </span>
-      </label>
+      <span data-product></span>
     </div>
+    <div class="controls">
+      <button class="pill-btn" data-lang="fr" type="button">FR</button>
+      <button class="pill-btn" data-lang="en" type="button">EN</button>
+      <button class="pill-btn" id="theme" type="button"></button>
+    </div>
+  </header>
 
-    <details class="wiring">
-      <summary data-i18n="wiring_btn"></summary>
-      <p class="credit" data-i18n="wiring_hint"></p>
-      <div class="frame">
-        <iframe src="https://app.cirkitdesigner.com/project/c6aa6c0a-9462-498f-8923-9ad4454e0e69?view=interactive_preview"
-                title="TigerScale V3 wiring" loading="lazy"></iframe>
+  <main>
+    <section class="hero">
+      <h1><span class="name" data-product></span><br><span data-t="hero_t"></span></h1>
+      <p class="lede" data-t="hero_p"></p>
+      <div class="cta">
+        <a class="btn" href="#install" data-t="hero_btn"></a>
+        <a class="btn ghost" href="#tools" data-t="hero_tools"></a>
+        <span class="ver" id="ver" hidden></span>
       </div>
-      <p class="credit" data-i18n-html="cirkit_credit_html"></p>
-    </details>
-  </div>
+      <p class="notice" data-t="notice"></p>
+    </section>
 
-  <div class="step"><span class="n">3</span><h2 data-i18n="s2_title"></h2></div>
-  <div class="panel" style="padding:2.1rem 1.4rem">
-    <div class="cta">
-      <esp-web-install-button id="installer" manifest="manifest-esp32s3_hsu_b.json">
-        <button slot="activate" data-i18n="btn"></button>
-        <span slot="unsupported"></span>
-        <span slot="not-allowed">Serve this page over HTTPS to install.</span>
-      </esp-web-install-button>
-      <small data-i18n="s2_note"></small>
-    </div>
+    <section id="tools">
+      <h2 data-t="tools_t"></h2>
+      <p class="sub" data-t="tools_p"></p>
+      <div class="grid" id="cards"></div>
+    </section>
 
-    <p class="lede" style="margin:1.1rem 0 0;text-align:center" data-i18n="s2_help"></p>
+    <section id="install">
+      <h2 data-t="inst_t"></h2>
+      <p class="sub" data-t="inst_p"></p>
+      <p class="notice serial-warn" data-t="no_serial"></p>
 
-    <div class="unsupported">
-      <b data-i18n="unsup_t"></b>
-      <p style="margin:.4rem 0 0;color:var(--muted)" data-i18n-html="unsup_b_html"></p>
-    </div>
-
-    <div class="note">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <path d="M12 8.4v5"/><path d="M12 16.4h.01"/><circle cx="12" cy="12" r="9.2"/>
-      </svg>
-      <div>
-        <b data-i18n="erase_t"></b>
-        <p data-i18n="erase_b"></p>
-        <p data-i18n-html="erase_u_html"></p>
+      <div class="step"><span class="n">1</span><h3 data-t="s1"></h3></div>
+      <div class="panel">
+        <div class="boards">
+          <label class="board">
+            <input type="radio" name="board" value="esp32s3_hsu_b" checked>
+            <span><b>ESP32-S3-Touch-LCD-3.5B</b><small data-t="b35b"></small></span>
+          </label>
+          <label class="board">
+            <input type="radio" name="board" value="esp32s3_hsu">
+            <span><b>ESP32-S3-Touch-LCD-3.5</b><small data-t="b35"></small></span>
+          </label>
+        </div>
       </div>
-    </div>
 
-    <div class="note">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <path d="M12 8.4v5"/><path d="M12 16.4h.01"/><circle cx="12" cy="12" r="9.2"/>
-      </svg>
-      <div>
-        <b data-i18n="noport_t"></b>
-        <p data-i18n-html="noport_b_html"></p>
+      <div class="step"><span class="n">2</span><h3 data-t="s2"></h3></div>
+      <div class="panel">
+        <p data-t="s2_p"></p>
+        <div class="picker" id="picker"></div>
+        <p class="hint" data-t="s2_hint"></p>
       </div>
-    </div>
-  </div>
 
-  <div class="step"><span class="n">4</span><h2 data-i18n="s3_title"></h2></div>
-  <div class="panel">
-    <ol class="after">
-      <li data-i18n-html="a1_html"></li>
-      <li data-i18n-html="a2_html"></li>
-      <li data-i18n-html="a3_html"></li>
-      <li data-i18n="a4"></li>
-    </ol>
-    <div class="note" style="margin-top:1.3rem">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <path d="M12 8.4v5"/><path d="M12 16.4h.01"/><circle cx="12" cy="12" r="9.2"/>
-      </svg>
-      <div>
-        <b data-i18n="trouble_t"></b>
-        <p data-i18n-html="trouble_b_html"></p>
+      <div class="step"><span class="n">3</span><h3 data-t="s3"></h3></div>
+      <div class="panel center">
+        <esp-web-install-button id="installer" manifest="manifest-esp32s3_hsu_b.json">
+          <button slot="activate" data-t="s3_btn"></button>
+          <span slot="unsupported" data-t="no_serial_short"></span>
+          <span slot="not-allowed">HTTPS</span>
+        </esp-web-install-button>
+        <p class="hint" data-t="s3_hint"></p>
       </div>
-    </div>
-  </div>
 
-</div>
+      <div class="step"><span class="n">4</span><h3 data-t="s4"></h3></div>
+      <div class="panel center">
+        <p data-t="s4_p"></p>
+        <button class="btn needs-serial" id="apply" type="button" data-t="s4_btn"></button>
+        <div class="status" id="status" role="status" aria-live="polite"></div>
+        <p class="hint" data-t="s4_hint"></p>
+      </div>
+    </section>
+  </main>
 
-<aside class="cart">
-  <div class="panel">
-    <h2>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M2.6 3h2.6l2.2 11.2a1.8 1.8 0 0 0 1.8 1.4h8.4a1.8 1.8 0 0 0 1.8-1.4L21 6.6H6"/>
-        <circle cx="9.6" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/>
-      </svg>
-      <span data-i18n="cart_title"></span>
-    </h2>
-    <p class="lede" data-i18n="cart_lede"></p>
-
-    <ul class="parts">
-      <li><span class="q">1&times;</span>
-        <span class="nm"><span data-i18n="p_board"></span><em data-i18n="p_board_n"></em></span>
-        <span class="buy-group">
-          <a class="buy" href="https://link.amazon/B0gaANfF5" target="_blank" rel="noopener sponsored">-3.5B</a>
-          <a class="buy" href="https://link.amazon/B0dpgOlOQ" target="_blank" rel="noopener sponsored">-3.5</a>
-        </span></li>
-      <li><span class="q">2&times;</span>
-        <span class="nm"><span data-i18n="p_pn532"></span><em data-i18n="p_pn532_n"></em></span>
-        <a class="buy" href="https://link.amazon/B0iTXrhjd" target="_blank" rel="noopener sponsored">Amazon</a></li>
-      <li><span class="q">1&times;</span>
-        <span class="nm" data-i18n="p_load"></span>
-        <a class="buy" href="https://link.amazon/B09LOUuI1" target="_blank" rel="noopener sponsored">Amazon</a></li>
-      <li><span class="q">1&times;</span>
-        <span class="nm"><span data-i18n="p_cable"></span><em data-i18n="p_cable_n"></em></span>
-        <a class="buy" href="https://link.amazon/B0aoW8qQx" target="_blank" rel="noopener sponsored">Amazon</a></li>
-      <li><span class="q">1&times;</span>
-        <span class="nm" data-i18n="p_conn"></span>
-        <a class="buy" href="https://link.amazon/B0aiEyjLx" target="_blank" rel="noopener sponsored">Amazon</a></li>
-      <li><span class="q">1&times;</span>
-        <span class="nm" data-i18n="p_battery"></span>
-        <a class="buy" href="https://link.amazon/B0etKlE1i" target="_blank" rel="noopener sponsored">Amazon</a></li>
-      <li><span class="q">&mdash;</span>
-        <span class="nm" data-i18n="p_wires"></span>
-        <a class="buy" href="https://link.amazon/B0bl6jvMs" target="_blank" rel="noopener sponsored">Amazon</a></li>
-      <li><span class="q">&mdash;</span>
-        <span class="nm" data-i18n="p_screws"></span>
-        <a class="buy" href="https://link.amazon/B0ekzxx1E" target="_blank" rel="noopener sponsored">Amazon</a></li>
-    </ul>
-
-    <div class="note" style="margin-top:1rem;font-size:.8rem;padding:.75rem .85rem">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px">
-        <path d="M12 8.4v5"/><path d="M12 16.4h.01"/><circle cx="12" cy="12" r="9.2"/>
-      </svg>
-      <div data-i18n="cart_warn"></div>
-    </div>
-
-    <div class="foot">
-      <p data-i18n="cart_incl"></p>
-      <p data-i18n="cart_opt"></p>
-      <p><a href="https://github.com/TigerTag-Project/Tiger-Scale-V3/blob/main/docs/HARDWARE.md#bill-of-materials"
-            data-i18n="cart_full"></a></p>
-      <p><a href="https://makerworld.com/en/models/3161869-tigerscale-v3-best-smart-filament-scale-with-nfc#profileId-3573543"
-            data-i18n="cart_stl"></a></p>
-    </div>
-  </div>
-</aside>
-
-</div>
-
-<footer>
-  <nav>
-    <a href="https://github.com/TigerTag-Project/Tiger-Scale-V3" data-i18n="f_source"></a>
-    <a href="https://github.com/TigerTag-Project/Tiger-Scale-V3/blob/main/docs/HARDWARE.md" data-i18n="f_wiring"></a>
-    <a href="https://makerworld.com/en/models/3161869-tigerscale-v3-best-smart-filament-scale-with-nfc#profileId-3573543" data-i18n="f_enclosure"></a>
-    <a href="https://discord.gg/3Qv5TSqnJH" data-i18n="f_discord"></a>
-    <a href="version.json" data-i18n="f_manifest"></a>
-  </nav>
-  <p><span data-i18n="f_license"></span> &middot; <a href="https://tigersystem.io">tigersystem.io</a></p>
-</footer>
-
+  <footer>
+    <p><span data-t="foot_1"></span> <a id="official-site"></a></p>
+    <p><span data-t="foot_2"></span> <a id="source">GitHub</a> · <span data-t="foot_3"></span></p>
+  </footer>
 </div>
 
 <script>
-  /* ---------- language ---------------------------------------------------- */
-  const LANGS = Object.keys(window.I18N);
+(function () {
+  const P = window.PRODUCT;
+  const OFFICIAL_SITE = 'https://tigertag-project.github.io/Tiger-Scale-V3/';
+  const SOURCE = 'https://github.com/juditech3D/Tiger-Scale-V3';
 
-  // Map what the browser reports onto what we ship. European and Brazilian
-  // Portuguese are separate files, so `pt-PT` must not collapse onto `pt`.
-  function pickLang() {
-    try {
-      const saved = localStorage.getItem('tigerscale-lang');
-      if (saved && LANGS.includes(saved)) return saved;
-    } catch (e) {}
-    for (const raw of (navigator.languages || [navigator.language || 'en'])) {
-      const tag = raw.toLowerCase();
-      if (LANGS.includes(tag)) return tag;
-      const base = tag.split('-')[0];
-      if (base === 'pt') return tag.startsWith('pt-pt') ? 'pt-pt' : 'pt';
-      if (LANGS.includes(base)) return base;
+  const T = {
+    fr: {
+      hero_t: 'Ta balance, avec les outils que tu veux.',
+      hero_p: 'Un firmware pour la balance TigerScale V3 qui garde la pesée des bobines et y ajoute des outils au choix. Tu choisis ceux qui apparaissent sur l\'écran, et dans quel ordre, avant même d\'installer.',
+      hero_btn: 'Installer',
+      hero_tools: 'Voir les outils',
+      notice: P + ' est un fork non officiel du firmware TigerScale V3. Il n\'est ni édité ni soutenu par le TigerTag Project. Il reste compatible avec les puces TigerTag et Tiger Studio.',
+      tools_t: 'Les outils',
+      tools_p: 'Tous les outils sont dans le firmware. Ceux que tu ne coches pas sont seulement cachés : tu peux les faire réapparaître à tout moment depuis l\'écran de la balance (bouton œil du menu de démarrage).',
+      core: 'toujours là',
+      acc_get: 'Télécharger le fichier',
+      acc_soon: 'Fichier bientôt disponible',
+      inst_t: 'Installer depuis le navigateur',
+      inst_p: 'Branche la balance à l\'ordinateur en USB-C et utilise Chrome ou Edge sur ordinateur. Rien à installer.',
+      no_serial: 'Ce navigateur ne sait pas parler à une carte en USB. Ouvre cette page avec Chrome ou Edge sur un ordinateur.',
+      no_serial_short: 'Navigateur non compatible : utilise Chrome ou Edge sur ordinateur.',
+      s1: 'Ta carte',
+      b35b: 'La plus courante : « 3.5B » est écrit au dos.',
+      b35: 'Celle sans « B » au dos.',
+      s2: 'Tes outils et leur ordre',
+      s2_p: 'Coche les outils à afficher dans le menu de démarrage et range-les avec les flèches. Tiger Scale reste toujours en premier.',
+      s2_hint: 'Si tu ne gardes que Tiger Scale, la balance démarre directement sur la pesée, sans menu.',
+      s3: 'Installer le firmware',
+      s3_btn: 'Installer',
+      s3_hint: 'Choisis le port de la balance dans la liste. Quand on te propose d\'effacer l\'appareil, réponds non pour garder ton Wi-Fi, ton compte et ta calibration.',
+      s4: 'Envoyer ton choix d\'outils',
+      s4_p: 'Quand l\'installation est finie et sa fenêtre fermée, laisse la balance branchée et envoie-lui ta sélection.',
+      s4_btn: 'Envoyer à la balance',
+      s4_hint: 'Ça marche aussi pour une balance déjà installée : branche-la et fais seulement cette étape.',
+      st_open: 'Connexion à la balance…',
+      st_wait: 'Envoi de la sélection…',
+      st_ok: 'C\'est fait. Le menu de la balance affiche : ',
+      st_busy: 'Le port est déjà utilisé. Ferme la fenêtre d\'installation (ou le programme qui l\'utilise), puis réessaie.',
+      st_none: 'Aucun port choisi.',
+      st_timeout: 'La balance n\'a pas répondu. Vérifie qu\'elle tourne avec ' + P + ', puis réessaie.',
+      st_err: 'Erreur : ',
+      theme_dark: 'Sombre', theme_light: 'Clair',
+      foot_1: 'Pour fabriquer la balance (pièces, câblage, boîtier), suis le guide du projet officiel :',
+      foot_2: 'Code source de ce fork :',
+      foot_3: 'TigerTag et TigerScale sont des marques du TigerTag Project.'
+    },
+    en: {
+      hero_t: 'Your scale, with the tools you want.',
+      hero_p: 'A firmware for the TigerScale V3 scale that keeps spool weighing and adds the tools you pick. You choose which ones the screen shows, and in which order, before you even install.',
+      hero_btn: 'Install',
+      hero_tools: 'See the tools',
+      notice: P + ' is an unofficial fork of the TigerScale V3 firmware. It is not published or supported by the TigerTag Project. It stays compatible with TigerTag chips and Tiger Studio.',
+      tools_t: 'The tools',
+      tools_p: 'Every tool is in the firmware. The ones you leave unticked are only hidden: bring them back at any time from the scale\'s screen (the eye button of the start menu).',
+      core: 'always on',
+      acc_get: 'Download the file',
+      acc_soon: 'File coming soon',
+      inst_t: 'Install from your browser',
+      inst_p: 'Plug the scale into the computer over USB-C and use Chrome or Edge on a computer. Nothing to install.',
+      no_serial: 'This browser cannot talk to a board over USB. Open this page in Chrome or Edge on a computer.',
+      no_serial_short: 'Browser not supported: use Chrome or Edge on a computer.',
+      s1: 'Your board',
+      b35b: 'The most common one: "3.5B" is printed on the back.',
+      b35: 'The one without a "B" on the back.',
+      s2: 'Your tools and their order',
+      s2_p: 'Tick the tools the start menu shows and order them with the arrows. Tiger Scale always stays first.',
+      s2_hint: 'Keep only Tiger Scale and the scale starts straight on the weigh screen, with no menu.',
+      s3: 'Install the firmware',
+      s3_btn: 'Install',
+      s3_hint: 'Pick the scale\'s port in the list. When offered to erase the device, answer no to keep your Wi-Fi, account and calibration.',
+      s4: 'Send your tool choice',
+      s4_p: 'Once the install is done and its window closed, leave the scale plugged in and send it your selection.',
+      s4_btn: 'Send to the scale',
+      s4_hint: 'This also works for a scale that is already installed: plug it in and do only this step.',
+      st_open: 'Connecting to the scale…',
+      st_wait: 'Sending the selection…',
+      st_ok: 'Done. The scale\'s menu shows: ',
+      st_busy: 'The port is already in use. Close the install window (or the program using it), then try again.',
+      st_none: 'No port chosen.',
+      st_timeout: 'The scale did not answer. Check that it runs ' + P + ', then try again.',
+      st_err: 'Error: ',
+      theme_dark: 'Dark', theme_light: 'Light',
+      foot_1: 'To build the scale (parts, wiring, case), follow the official project\'s guide:',
+      foot_2: 'Source code of this fork:',
+      foot_3: 'TigerTag and TigerScale are trademarks of the TigerTag Project.'
     }
-    return 'en';
+  };
+
+  let lang = 'fr';
+  try {
+    lang = localStorage.getItem('mt-lang') ||
+           ((navigator.language || 'fr').toLowerCase().startsWith('fr') ? 'fr' : 'en');
+  } catch (e) {}
+  if (!T[lang]) lang = 'en';
+  const tr = k => T[lang][k] || T.en[k] || k;
+
+  // The selection: every tool in menu order, each shown or not. Tiger Scale
+  // is first and always shown. Remembered in this browser between visits.
+  let picks = window.TOOLS.map(t => ({ id: t.id, on: true }));
+  try {
+    const saved = JSON.parse(localStorage.getItem('mt-picks') || 'null');
+    if (Array.isArray(saved)) {
+      const known = new Map(picks.map(p => [p.id, p]));
+      const next = [known.get('tigerscale')];
+      known.delete('tigerscale');
+      saved.forEach(s => { if (known.has(s.id)) { next.push({ id: s.id, on: !!s.on }); known.delete(s.id); } });
+      known.forEach(p => next.push(p));   // tools added since the last visit
+      picks = next;
+    }
+  } catch (e) {}
+  const savePicks = () => { try { localStorage.setItem('mt-picks', JSON.stringify(picks)); } catch (e) {} };
+  const tool = id => window.TOOLS.find(t => t.id === id);
+
+  function icon(t) {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+           (window.TOOL_ICONS[t.icon] || '') + '</svg>';
+  }
+  function tint(el, color) { el.style.background = color + '22'; el.style.color = color; }
+
+  // The part to print for a tool, with its link or "coming soon".
+  function accessory(t) {
+    const a = document.createElement('p');
+    a.className = 'acc';
+    a.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8.4v5"/><path d="M12 16.4h.01"/><circle cx="12" cy="12" r="9.2"/></svg>';
+    const span = document.createElement('span');
+    span.textContent = t.accessory[lang] + ' ';
+    if (t.accessory.url) {
+      const link = document.createElement('a');
+      link.href = t.accessory.url; link.textContent = tr('acc_get');
+      span.append(link);
+    } else {
+      const soon = document.createElement('span');
+      soon.className = 'soon'; soon.textContent = '(' + tr('acc_soon') + ')';
+      span.append(soon);
+    }
+    a.append(span);
+    return a;
   }
 
-  function applyLang(code) {
-    const t = window.I18N[code] || window.I18N.en;
-    document.documentElement.lang = code;
-    document.querySelectorAll('[data-i18n]').forEach(el => {
-      const v = t[el.dataset.i18n];
-      if (v != null) el.textContent = v;
+  function drawCards() {
+    const box = document.getElementById('cards');
+    box.textContent = '';
+    window.TOOLS.forEach(t => {
+      const c = document.createElement('article');
+      c.className = 'card';
+      const ic = document.createElement('div');
+      ic.className = 'ic'; ic.innerHTML = icon(t); tint(ic, t.color);
+      const h = document.createElement('h3');
+      h.textContent = t.name[lang];
+      if (t.core) { const tag = document.createElement('span'); tag.className = 'tag'; tag.textContent = tr('core'); h.append(tag); }
+      const p = document.createElement('p');
+      p.textContent = t.desc[lang];
+      c.append(ic, h, p);
+      if (t.accessory) c.append(accessory(t));
+      box.append(c);
     });
-    // Only keys the dictionary itself marks as markup are inserted as HTML.
-    document.querySelectorAll('[data-i18n-html]').forEach(el => {
-      const v = t[el.dataset.i18nHtml];
-      if (v != null) el.innerHTML = v;
-    });
-    document.querySelectorAll('[data-i18n-aria]').forEach(el => {
-      const v = t[el.dataset.i18nAria];
-      if (v != null) el.setAttribute('aria-label', v);
-    });
-    try { localStorage.setItem('tigerscale-lang', code); } catch (e) {}
   }
 
-  const box = document.getElementById('langbox');
-  const btn = document.getElementById('langbtn');
-  const menu = document.getElementById('langmenu');
-  const now = document.getElementById('langnow');
-
-  const TICK = '<svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-             + 'stroke-width="3" stroke-linecap="round" stroke-linejoin="round">'
-             + '<path d="M4.5 12.5 9.5 17.5 19.5 6.5"/></svg>';
-
-  menu.innerHTML = LANGS.map(c =>
-    `<li role="option" tabindex="0" data-code="${c}" aria-selected="false">`
-    + `<span>${window.I18N[c].lang_name}</span>${TICK}</li>`).join('');
-
-  function setOpen(open) {
-    box.dataset.open = open ? '1' : '0';
-    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-  }
-  function choose(code) {
-    applyLang(code);
-    now.textContent = window.I18N[code].lang_name;
-    menu.querySelectorAll('li').forEach(li =>
-      li.setAttribute('aria-selected', li.dataset.code === code ? 'true' : 'false'));
-    setOpen(false);
-  }
-
-  btn.addEventListener('click', () => setOpen(box.dataset.open !== '1'));
-  menu.addEventListener('click', e => {
-    const li = e.target.closest('li');
-    if (li) choose(li.dataset.code);
-  });
-  menu.addEventListener('keydown', e => {
-    const li = e.target.closest('li');
-    if (!li) return;
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(li.dataset.code); }
-  });
-  document.addEventListener('click', e => {
-    if (!box.contains(e.target)) setOpen(false);
-  });
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { setOpen(false); btn.focus(); }
-  });
-
-  choose(pickLang());
-
-  /* ---------- day / night ------------------------------------------------- */
-  const root = document.documentElement;
-  const themeBox = document.getElementById('theme');
-  const sw = document.getElementById('switch');
-
-  function isDark() {
-    return root.getAttribute('data-theme') !== 'light';
-  }
-  function paintSwitch() {
-    const dark = isDark();
-    themeBox.checked = dark;
-    sw.dataset.on = dark ? 'dark' : 'light';
-  }
-  paintSwitch();
-  themeBox.addEventListener('change', () => {
-    const next = themeBox.checked ? 'dark' : 'light';
-    root.setAttribute('data-theme', next);
-    try { localStorage.setItem('tigerscale-theme', next); } catch (e) {}
-    paintSwitch();
-  });
-
-
-  /* ---------- installer --------------------------------------------------- */
-  const installer = document.getElementById('installer');
-  document.querySelectorAll('input[name=env]').forEach(r => {
-    r.addEventListener('change', () => {
-      installer.manifest = `manifest-${r.value}.json`;
-    });
-  });
-
-  // Web Serial is Chromium-only; say so plainly rather than showing a dead button.
-  if (!('serial' in navigator)) document.body.classList.add('no-webserial');
-
-  // Show which version this page installs, read from the same manifest the
-  // device's own over-the-air check uses — so the two cannot disagree.
-  fetch('version.json')
-    .then(r => r.ok ? r.json() : null)
-    .then(v => {
-      if (v && v.version) {
-        document.getElementById('ver').textContent = v.version;
-        document.getElementById('verpill').hidden = false;
+  function drawPicker() {
+    const box = document.getElementById('picker');
+    box.textContent = '';
+    picks.forEach((p, k) => {
+      const t = tool(p.id);
+      const row = document.createElement('div');
+      row.className = 'prow' + (p.on ? '' : ' off');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.checked = p.on; cb.disabled = k === 0;
+      cb.setAttribute('aria-label', t.name[lang]);
+      cb.onchange = () => { p.on = cb.checked; savePicks(); drawPicker(); };
+      const ic = document.createElement('div');
+      ic.className = 'ic'; ic.innerHTML = icon(t); tint(ic, t.color);
+      const tx = document.createElement('div');
+      tx.className = 't';
+      const b = document.createElement('b'); b.textContent = t.name[lang];
+      const s = document.createElement('small');
+      s.textContent = t.accessory ? t.accessory[lang] : t.desc[lang];
+      tx.append(b, s);
+      row.append(cb, ic, tx);
+      if (k > 0) {
+        const ar = document.createElement('div');
+        ar.className = 'arrows';
+        const up = document.createElement('button');
+        up.type = 'button'; up.textContent = '▲'; up.disabled = k < 2;
+        up.setAttribute('aria-label', t.name[lang] + ' ▲');
+        up.onclick = () => { [picks[k - 1], picks[k]] = [picks[k], picks[k - 1]]; savePicks(); drawPicker(); };
+        const dn = document.createElement('button');
+        dn.type = 'button'; dn.textContent = '▼'; dn.disabled = k === picks.length - 1;
+        dn.setAttribute('aria-label', t.name[lang] + ' ▼');
+        dn.onclick = () => { [picks[k + 1], picks[k]] = [picks[k], picks[k + 1]]; savePicks(); drawPicker(); };
+        ar.append(up, dn);
+        row.append(ar);
       }
-    })
+      box.append(row);
+    });
+  }
+
+  function applyLang() {
+    document.documentElement.lang = lang;
+    document.querySelectorAll('[data-product]').forEach(e => { e.textContent = P; });
+    document.querySelectorAll('[data-t]').forEach(e => { e.textContent = tr(e.dataset.t); });
+    document.querySelectorAll('[data-lang]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
+    paintTheme();
+    drawCards();
+    drawPicker();
+  }
+  document.querySelectorAll('[data-lang]').forEach(b => b.addEventListener('click', () => {
+    lang = b.dataset.lang;
+    try { localStorage.setItem('mt-lang', lang); } catch (e) {}
+    applyLang();
+  }));
+
+  const official = document.getElementById('official-site');
+  official.href = OFFICIAL_SITE;
+  official.textContent = OFFICIAL_SITE.replace('https://', '').replace(/\/$/, '');
+  document.getElementById('source').href = SOURCE;
+
+  // Theme
+  const root = document.documentElement;
+  const themeBtn = document.getElementById('theme');
+  const isDark = () => {
+    const forced = root.getAttribute('data-theme');
+    if (forced) return forced === 'dark';
+    return !window.matchMedia('(prefers-color-scheme: light)').matches;
+  };
+  function paintTheme() { themeBtn.textContent = isDark() ? tr('theme_light') : tr('theme_dark'); }
+  themeBtn.addEventListener('click', () => {
+    const next = isDark() ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('mt-theme', next); } catch (e) {}
+    paintTheme();
+  });
+
+  // Board -> installer manifest
+  const installer = document.getElementById('installer');
+  document.querySelectorAll('input[name=board]').forEach(r => r.addEventListener('change', () => {
+    installer.manifest = 'manifest-' + r.value + '.json';
+  }));
+
+  // The version, from the same manifest the scale's own update check reads.
+  fetch('version.json', { cache: 'no-store' })
+    .then(r => r.ok ? r.json() : null)
+    .then(v => { if (v && v.version) { const e = document.getElementById('ver'); e.textContent = 'v' + v.version; e.hidden = false; } })
     .catch(() => {});
+
+  // Step 4: the selection over USB. The firmware answers "TOOLS OK on=..." on
+  // its serial port (toolsSerialTask). The line is sent again every second for
+  // a while, because opening the port can restart the board, and the first
+  // lines would then reach a scale that is still booting.
+  if (!('serial' in navigator)) document.body.classList.add('no-serial');
+  const status = document.getElementById('status');
+  const say = (msg, cls) => { status.textContent = msg; status.className = 'status' + (cls ? ' ' + cls : ''); };
+  const applyBtn = document.getElementById('apply');
+
+  applyBtn.addEventListener('click', async () => {
+    // The shown tools in their order; the scale puts the hidden ones after them.
+    const shown = picks.filter(p => p.on && p.id !== 'tigerscale').map(p => p.id);
+    const msg = 'TOOLS=' + (shown.length ? shown.join(',') : 'none') + '\n';
+    applyBtn.disabled = true;
+    let port = null, reader = null, writer = null, reading = null;
+    try {
+      say(tr('st_open'));
+      // The port the installer was given is already allowed: no second prompt.
+      port = (await navigator.serial.getPorts()).find(p => p.getInfo().usbVendorId === 0x303a) || null;
+      if (!port) {
+        try { port = await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x303a }] }); }
+        catch (e) { say(tr('st_none'), 'bad'); return; }
+      }
+      try { await port.open({ baudRate: 115200 }); }
+      catch (e) { say(tr('st_busy'), 'bad'); port = null; return; }
+      writer = port.writable.getWriter();
+      reader = port.readable.getReader();
+      const dec = new TextDecoder();
+      let buf = '', answer = null;
+      reading = (async () => {
+        try {
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buf += dec.decode(value, { stream: true });
+            const m = buf.match(/TOOLS OK on=(\S*)/);
+            if (m) { answer = m[1]; break; }
+            if (buf.length > 20000) buf = buf.slice(-2000);
+          }
+        } catch (e) { /* cancelled, or the board restarted */ }
+      })();
+      say(tr('st_wait'));
+      const enc = new TextEncoder();
+      const until = Date.now() + 25000;
+      while (!answer && Date.now() < until) {
+        try { await writer.write(enc.encode(msg)); } catch (e) { /* board restarting */ }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      if (answer) {
+        const names = answer.split(',').map(id => (tool(id) ? tool(id).name[lang] : id));
+        say(tr('st_ok') + names.join(', ') + '.', 'ok');
+      } else {
+        say(tr('st_timeout'), 'bad');
+      }
+    } catch (e) {
+      say(tr('st_err') + (e && e.message ? e.message : e), 'bad');
+    } finally {
+      try { if (reader) await reader.cancel(); } catch (e) {}
+      try { if (reading) await reading; } catch (e) {}
+      try { if (reader) reader.releaseLock(); } catch (e) {}
+      try { if (writer) writer.releaseLock(); } catch (e) {}
+      try { if (port) await port.close(); } catch (e) {}
+      applyBtn.disabled = false;
+    }
+  });
+
+  applyLang();
+})();
 </script>
 </body>
 </html>

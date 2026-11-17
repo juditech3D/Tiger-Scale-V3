@@ -43,6 +43,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  # What the installer calls this firmware (scripts/make-manifest.py --product).
+  PRODUCT_NAME: Tiger Multi-tools
   # The build whose binary fills the FLAT OTA keys of version.json. Every scale
   # in the field is an ESP32-S3-Touch-LCD-3.5B and reads exactly those keys, so
   # this must stay the -3.5B build forever; make-manifest.py refuses to generate
@@ -188,6 +190,7 @@ jobs:
 
           python3 scripts/make-manifest.py \
             --version "$VERSION" \
+            --product "$PRODUCT_NAME" \
             --repo "$REPO" \
             --ota-env "$OTA_ENV" \
             --dist dist \

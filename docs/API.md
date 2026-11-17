@@ -230,6 +230,31 @@ The list behind the start menu's heat press memo tool, kept in LittleFS as
 - `temp` 0-250 °C and `time` 0-999 s are clamped on the screen; a time of 0 leaves the timer unavailable.
 - `settings.defaults` is `true` only on the factory list, and is what makes the screen call the values indicative; the editor clears it on save.
 
+### Start menu tools
+
+Which tools the start menu shows, and in which order. Tiger Scale is always shown and always
+first; a hidden tool is still in the firmware and comes back the moment it is shown again. Kept
+in NVS (`config`/`toolsOff`, `config`/`toolsOrder`, both lists of tool ids). Ids: `tigerscale`,
+`pod`, `parcel`, `caltest`, `presse`.
+
+| Endpoint | Body | Effect |
+|---|---|---|
+| `GET /tools` | — | A page to tick and order the tools |
+| `GET /api/tools` | — | `{"tools":[{"id":"pod","name":"TigerPOD","sub":"…","shown":true}, …]}`, in menu order |
+| `POST /api/tools` | form fields `shown`, `order` (comma-separated ids) | Sets both; an open start menu rebuilds |
+
+The same choice travels over the USB serial port (115200 baud), which is how the web installer
+sets it right after a flash, while the scale is still on its first-boot screens:
+
+| Line sent | Answer |
+|---|---|
+| `TOOLS?` | `TOOLS on=<shown ids, in order> order=<all ids, in order>` |
+| `TOOLS=pod,parcel` | Shows those tools, in that order, after Tiger Scale; hides the others. `TOOLS OK on=… order=…` |
+| `TOOLS=all` | Shows every tool, order unchanged |
+
+Unknown ids are skipped, so `TOOLS=none` leaves Tiger Scale alone, and the scale then boots
+straight to the weigh screen.
+
 ## The WebSocket
 
 ```

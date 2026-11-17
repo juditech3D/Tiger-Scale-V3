@@ -32,13 +32,14 @@ transient, once --wait has elapsed.
 import argparse
 import hashlib
 import json
+import os
 import sys
 import time
 import urllib.error
 import urllib.request
 
-REPO = "TigerTag-Project/Tiger-Scale-V3"
-PAGES = "https://tigertag-project.github.io/Tiger-Scale-V3"
+REPO = os.environ.get("GITHUB_REPOSITORY", "TigerTag-Project/Tiger-Scale-V3")
+PAGES = "https://%s.github.io/%s" % (REPO.split("/")[0].lower(), REPO.split("/")[1])
 # The build behind the FLAT keys of version.json — the ones every scale in the
 # field reads. Must match FLEET_ENV in make-manifest.py.
 OTA_ENV = "esp32s3_hsu_b"
