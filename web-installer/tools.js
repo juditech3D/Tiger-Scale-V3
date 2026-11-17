@@ -3,8 +3,9 @@
 // tool's id in kLauncherTools (TigerTagSplashESP32.ino), since it is what the
 // page sends to the scale over USB ("TOOLS=pod,parcel").
 //
-// `accessory` (optional) is a part to print for the tool: its text in each
-// language and the link to the file, once there is one.
+// `needs` (optional) is something the tool needs besides the firmware (a part
+// to print, an app): its text in each language, the link once there is one,
+// and the link's own label (default: "Download the file").
 //
 // `core` marks the tool that is always installed, always first: the spool
 // workflow the scale was built for.
@@ -19,6 +20,12 @@ window.TOOLS = [
   },
   {
     id: 'pod', color: '#f5a623', icon: 'chip',
+    needs: {
+      url: 'https://github.com/juditech3D/TigerTag-Studio-Manager/releases/latest',
+      label: { fr: 'Télécharger ce Tiger Studio', en: 'Download this Tiger Studio' },
+      fr: 'Nécessite le Tiger Studio de ce fork (Windows) : le Studio officiel ne sait pas utiliser la balance comme TigerPOD.',
+      en: 'Needs this fork’s Tiger Studio (Windows): the official Studio cannot use the scale as a TigerPOD.'
+    },
     name: { fr: 'TigerPOD', en: 'TigerPOD' },
     desc: {
       fr: 'Les deux lecteurs de la balance deviennent un TigerPOD pour Tiger Studio : lecture et écriture des puces par le réseau.',
@@ -29,7 +36,7 @@ window.TOOLS = [
     id: 'parcel', color: '#e8821e', icon: 'box',
     // A printed part the tool needs. `url` stays empty until the file is
     // published; the page then says "coming soon" instead of a link.
-    accessory: {
+    needs: {
       url: '',
       fr: 'Nécessite l’accessoire pèse-colis, à imprimer séparément.',
       en: 'Needs the parcel-scale accessory, printed separately.'

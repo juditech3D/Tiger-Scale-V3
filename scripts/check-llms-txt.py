@@ -97,7 +97,7 @@ def main():
                         "guard cannot tell whether llms.txt is current")
     else:
         cur = cur.group(1)
-        m = re.search(r"reviewed against firmware v([0-9]+\.[0-9]+\.[0-9]+)", text)
+        m = re.search(r"reviewed against firmware v([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:[.][0-9A-Za-z]+)*)?)", text)
         if not m:
             problems.append("llms.txt no longer records the version it was reviewed "
                             "against. Add: _This summary was reviewed against "

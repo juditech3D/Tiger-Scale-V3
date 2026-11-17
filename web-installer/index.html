@@ -372,16 +372,17 @@
   }
   function tint(el, color) { el.style.background = color + '22'; el.style.color = color; }
 
-  // The part to print for a tool, with its link or "coming soon".
-  function accessory(t) {
+  // What a tool needs besides the firmware, with its link or "coming soon".
+  function needs(t) {
     const a = document.createElement('p');
     a.className = 'acc';
     a.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8.4v5"/><path d="M12 16.4h.01"/><circle cx="12" cy="12" r="9.2"/></svg>';
     const span = document.createElement('span');
-    span.textContent = t.accessory[lang] + ' ';
-    if (t.accessory.url) {
+    span.textContent = t.needs[lang] + ' ';
+    if (t.needs.url) {
       const link = document.createElement('a');
-      link.href = t.accessory.url; link.textContent = tr('acc_get');
+      link.href = t.needs.url;
+      link.textContent = (t.needs.label && t.needs.label[lang]) || tr('acc_get');
       span.append(link);
     } else {
       const soon = document.createElement('span');
@@ -406,7 +407,7 @@
       const p = document.createElement('p');
       p.textContent = t.desc[lang];
       c.append(ic, h, p);
-      if (t.accessory) c.append(accessory(t));
+      if (t.needs) c.append(needs(t));
       box.append(c);
     });
   }
@@ -428,7 +429,7 @@
       tx.className = 't';
       const b = document.createElement('b'); b.textContent = t.name[lang];
       const s = document.createElement('small');
-      s.textContent = t.accessory ? t.accessory[lang] : t.desc[lang];
+      s.textContent = t.needs ? t.needs[lang] : t.desc[lang];
       tx.append(b, s);
       row.append(cb, ic, tx);
       if (k > 0) {

@@ -14,6 +14,13 @@ scaffold's placeholder text.
 
 Nothing yet.
 
+## [v3.13.0-mt.1](docs/release-notes/v3.13.0-mt.1.md)
+
+First Tiger Multi-tools release (unofficial fork): a start menu of tools (TigerPOD,
+parcel scale, calibration & test, heat press memo) that the owner shows, hides and
+orders on the scale, at `/tools` or from the installer over USB; updates from the
+fork's own Pages. See the release notes for the full entry.
+
 ## [v3.13.0](docs/release-notes/v3.13.0.md)
 
 See the release notes for the full entry.
