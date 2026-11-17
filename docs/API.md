@@ -214,6 +214,22 @@ All of these are `POST`. Bodies are JSON unless noted.
 The two destructive ones take no confirmation and no authentication. Anything
 that exposes them in a UI should confirm on its own side.
 
+### Heat press memo
+
+The list behind the start menu's heat press memo tool, kept in LittleFS as
+`/presse.json` (at most 16 KB). Like everything here it has no authentication.
+
+| Endpoint | Body | Effect |
+|---|---|---|
+| `GET /presse` | — | The list editor: categories, products, export and import |
+| `GET /api/presse` | — | The list as JSON (the factory list when none is saved yet) |
+| `POST /api/presse` | the whole list | Replaces it; `400` if it is not an object with a `categories` array. An open memo screen reloads to its categories |
+| `POST /api/presse/reset` | none | Puts the factory list back (indicative values) |
+
+`{"settings":{"defaults":false},"categories":[{"name":"DTF","color":"#2980B9","items":[{"name":"Cotton","temp":160,"time":15,"pressure":"Firm","peel":"Cold","note":""}]}]}`
+- `temp` 0-250 °C and `time` 0-999 s are clamped on the screen; a time of 0 leaves the timer unavailable.
+- `settings.defaults` is `true` only on the factory list, and is what makes the screen call the values indicative; the editor clears it on save.
+
 ## The WebSocket
 
 ```

@@ -318,7 +318,7 @@ Full terms: **[TRADEMARK.md](TRADEMARK.md)**.
 Yes please — especially bench-verification of the SPI and I²C wiring, enclosure
 remixes, and translations.
 
-The firmware is one ~17 200-line file, which sounds worse than it is:
+The firmware is one ~18 400-line file, which sounds worse than it is:
 [CODEMAP.md](CODEMAP.md) maps every section and function so you can go straight to
 the 60 lines you need. Read [CONTRIBUTING.md](CONTRIBUTING.md) first — it also
 covers the guard scripts you should run before opening a pull request.

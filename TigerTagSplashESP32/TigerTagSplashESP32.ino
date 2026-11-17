@@ -15,34 +15,34 @@
 //
 //   TABLE OF CONTENTS                                     line range
 //   ---------------------------------------------------- -----------
-//   HARDWARE CONFIGURATION                                 259-  452
-//   OTA CONFIGURATION                                      453-  485
-//   FORWARD DECLARATIONS                                   486-  790
-//   WEIGHT ROUNDING                                        791-  823
-//   GLOBAL OBJECTS                                         824- 1749
-//   CONFIGURATION VARIABLES                               1750- 2179
-//   OLED DISPLAY                                          2180- 2957
-//   CLOUD PARSING                                         2958- 2972
-//   WIFI SETUP                                            2973- 8079
-//   LITTLEFS                                              8080- 8379
-//   FIREBASE AUTHENTICATION                               8380-10062
-//   WEBSOCKET                                            10063-10089
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 10090-10224
-//   UNIFIED WS FRAME BUILDER                             10225-10349
-//   WEIGHT FILTER HELPERS                                10350-10364
-//   POST-SEND STATE RESET (shared by all send paths)     10365-10385
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 10386-10489
-//   WEB SERVER                                           10490-11518
-//   CLOUD COMMUNICATION                                  11519-11701
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 11702-12209
-//   mDNS                                                 12210-12247
-//   SCALE                                                12248-12418
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  12419-12536
-//   RFID                                                 12537-13619
-//   OTA — Over-the-air firmware + filesystem update    13620-14299
-//   LVGL bridge + main weigh screen                      14300-15239
-//   Remote live view: the screen out, taps back in       15240-16089
-//   SETUP & LOOP                                         16090-17335
+//   HARDWARE CONFIGURATION                                 260-  453
+//   OTA CONFIGURATION                                      454-  486
+//   FORWARD DECLARATIONS                                   487-  797
+//   WEIGHT ROUNDING                                        798-  830
+//   GLOBAL OBJECTS                                         831- 1756
+//   CONFIGURATION VARIABLES                               1757- 2186
+//   OLED DISPLAY                                          2187- 2964
+//   CLOUD PARSING                                         2965- 2979
+//   WIFI SETUP                                            2980- 9066
+//   LITTLEFS                                              9067- 9366
+//   FIREBASE AUTHENTICATION                               9367-11049
+//   WEBSOCKET                                            11050-11076
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 11077-11211
+//   UNIFIED WS FRAME BUILDER                             11212-11336
+//   WEIGHT FILTER HELPERS                                11337-11351
+//   POST-SEND STATE RESET (shared by all send paths)     11352-11372
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 11373-11476
+//   WEB SERVER                                           11477-12566
+//   CLOUD COMMUNICATION                                  12567-12749
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 12750-13257
+//   mDNS                                                 13258-13295
+//   SCALE                                                13296-13466
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  13467-13599
+//   RFID                                                 13600-14682
+//   OTA — Over-the-air firmware + filesystem update    14683-15362
+//   LVGL bridge + main weigh screen                      15363-16302
+//   Remote live view: the screen out, taps back in       16303-17152
+//   SETUP & LOOP                                         17153-18407
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -112,6 +112,7 @@ struct MetadataCache { String mfr; String mat; String col; uint32_t productId; }
 #include "i18n.h"                 // translation table — edit i18n.h to add/change strings
 #include "live_page.h"            // the live view's browser page — see §LIVE
 #include "screen_page.h"          // the /screen page — same reason it is a header
+#include "presse_page.h"          // the heat press memo editor (/presse) — same reason
 
 // Declared immediately after the includes on purpose: the .ino preprocessor
 // inserts every generated function prototype right here, so a type used in a
@@ -545,6 +546,12 @@ void displayWeightWithState(float weight, const String& uid, OledState state);
 static void lvglUpdateMainScreen(float weight, const String& uid, OledState state);
 static bool tsNumericInput(const char* prompt, String &val, int minVal = 0, int maxVal = 0);
 static bool runCalibrationWizard();   // true = a calibration was saved
+static void playBeeps(int freqHz, int ms, int count);   // §AUDIO
+static void startWebServerNow();                        // §19
+static void wifiKeepAlive();                            // §9, after setupWiFi()
+float readWeight();                  // §23; declared here, not where the launcher
+                                     // uses it: a later declaration stops the .ino
+                                     // converter emitting its own prototype up top
 static void runLanguageSettings(bool firstBoot = false);
 static void lvglBuildMainScreen();
 static void runFirstBootOnboarding();
@@ -7436,13 +7443,943 @@ static void runOtaMenu() {
     ESP.restart();
 }
 
+// ---- Start menu (tool launcher) ---------------------------------------------
+// The same platform and load cell serve more than the spool workflow: a plain
+// parcel scale, and a calibration + raw HX711 test for diagnosing wiring --
+// and the same panel makes a heat press reference card. So
+// boot lands on a list of tools instead of going straight to the weigh screen.
+//
+// "Tiger Scale" is one entry of that list and is the firmware exactly as it
+// was: picking it returns to loop(), which carries on with the weigh workflow.
+// Every other tool is a blocking screen with the house calling convention
+// (pumps its own lv_timer_handler(), never called from an LVGL callback), and
+// its header band brings it back to this list. Settings -> Tools reopens it.
+//
+// Adding a tool is one row in kLauncherTools: name, subtitle, icon, colour and
+// an entry point taking the screen to return to. The list scrolls, so a fourth
+// row needs no layout change.
+
+static bool gLauncherRequested = true;    // boot shows the launcher once
+
+// Finger still on the glass after the tap that opened or closed a screen:
+// wait for the lift so it cannot land on whatever appears under it.
+static void lvglDrainPress(uint32_t maxMs) {
+    int16_t dx, dy; uint32_t t0 = millis();
+    while (tsRead(dx, dy) && millis() - t0 < maxMs) delay(20);
+}
+
+// The kitchen-scale TARE button, same look as the calibration wizard's: blue,
+// "0.0" over the word.
+static lv_obj_t* lvglAddTareButton(lv_obj_t *parent, int w, int h, lv_event_cb_t cb, intptr_t action) {
+    lv_obj_t *btn = lv_btn_create(parent);
+    lv_obj_set_size(btn, w, h);
+    lv_obj_set_style_bg_color(btn, LVCOL_ACCENT, 0);
+    lv_obj_set_style_radius(btn, 12, 0);
+    lv_obj_set_style_shadow_width(btn, 0, 0);
+    lv_obj_set_user_data(btn, (void *)action);
+    lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *zero = lv_label_create(btn);
+    lv_label_set_text(zero, "0.0");
+    lv_obj_set_style_text_color(zero, LVCOL_TEXT, 0);
+    lv_obj_set_style_text_font(zero, &gFont20, 0);
+    lv_obj_align(zero, LV_ALIGN_CENTER, 0, -11);
+    lv_obj_t *cap = lv_label_create(btn);
+    lv_label_set_text(cap, t(I18N_TARE));
+    lv_obj_set_style_text_color(cap, LVCOL_TEXT, 0);
+    lv_obj_set_style_text_font(cap, &gFont14, 0);
+    lv_obj_align(cap, LV_ALIGN_CENTER, 0, 13);
+    return btn;
+}
+
+// Parcel scale: the live weight in grams, big, and a TARE button. No tag, no
+// account, no network -- it only reads the scale. readWeight() is the same
+// filtered reading the weigh screen shows, so both modes agree on a weight.
+// The tare is the weigh screen's own (lvglTareBtnEvent): same call, same
+// persisted offset, so going back to Tiger Scale keeps the zero.
+static void runParcelScale(lv_obj_t *backTo) {
+    enum PsAction { PS_NONE, PS_BACK, PS_TARE };
+    static PsAction sPs;
+    auto cb = [](lv_event_t *e) {
+        sPs = (PsAction)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    };
+    sPs = PS_NONE;
+
+    lv_obj_t *scr = lv_obj_create(nullptr);
+    lv_obj_set_style_bg_color(scr, LVCOL_BG, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lvglAddHeader(scr, t(I18N_TOOL_PARCEL), cb, nullptr, (intptr_t)PS_BACK);
+
+    lv_obj_t *wLbl = lv_label_create(scr);
+    lv_label_set_text(wLbl, "-- g");
+    lv_obj_set_style_text_font(wLbl, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_color(wLbl, LVCOL_MUTED, 0);
+    lv_obj_set_width(wLbl, 480);
+    lv_obj_set_style_text_align(wLbl, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(wLbl, 0, 118);
+
+    lv_obj_t *tareBtn = lvglAddTareButton(scr, 220, 64, cb, (intptr_t)PS_TARE);
+    lv_obj_align(tareBtn, LV_ALIGN_BOTTOM_MID, 0, -12);
+
+    lv_scr_load(scr);
+    lvglDrainPress(800);
+
+    char shown[24] = "";
+    lv_color_t shownCol = LVCOL_MUTED;
+    uint32_t lastRead = 0;
+    while (sPs != PS_BACK) {
+        lv_timer_handler(); delay(5);
+        wifiKeepAlive();
+
+        if (sPs == PS_TARE) {
+            sPs = PS_NONE;
+            lv_label_set_text(wLbl, "0 g");
+            lv_obj_add_state(tareBtn, LV_STATE_DISABLED);
+            lv_timer_handler();
+            scale.tare();
+            autoTarePending = false;
+            autoTareStableSinceMs = 0;
+            resetWeightFilters();
+            prefs.begin("config", false);
+            prefs.putFloat("tareFactor", scale.get_offset());
+            prefs.end();
+            lv_obj_clear_state(tareBtn, LV_STATE_DISABLED);
+            shown[0] = '\0';
+            lvglDrainPress(600);
+        }
+
+        if (millis() - lastRead < 100) continue;
+        lastRead = millis();
+        float w = readWeight();
+        // Same "offline" rule as readWeight(): a 10 Hz HX711 is not ready most
+        // of the time between samples, so only a streak past 600 ms is news.
+        bool offline = gHx711NotReadySinceMs != 0 && millis() - gHx711NotReadySinceMs >= 600;
+        char buf[24];
+        lv_color_t col;
+        if (offline) { snprintf(buf, sizeof buf, "-- g"); col = LVCOL_RED; }
+        else         { snprintf(buf, sizeof buf, "%d g", roundWeight(w)); col = gIsStable ? LVCOL_TEXT : LVCOL_MUTED; }
+        if (strcmp(buf, shown) != 0) { lv_label_set_text(wLbl, buf); strcpy(shown, buf); }
+        if (col.full != shownCol.full) { lv_obj_set_style_text_color(wLbl, col, 0); shownCol = col; }
+    }
+
+    lv_scr_load(backTo);
+    lv_obj_del(scr);
+    lvglDrainPress(800);
+}
+
+// Calibration & test: the HX711's raw counts read straight off the chip (not
+// through readWeight()'s median/EMA/dead zone, which would hide exactly what is
+// being looked for), with a verdict that names the likely wiring fault. The
+// "Reference" button freezes the current mean so pressing the platform shows
+// whether the load cell reacts at all. "Calibrate" opens the existing wizard.
+//
+// Thresholds are in raw counts over a 2 s window, taken from the bench
+// diagnostic build they replace: a 24-bit reading pinned at +-2^23 means the
+// bridge is not connected, a spread in the tens of thousands means a floating
+// signal wire, a few thousand means a bad contact or ground.
+static void runLoadCellTest(lv_obj_t *backTo) {
+    enum LcAction { LC_NONE, LC_BACK, LC_REF, LC_CAL };
+    static LcAction sLc;
+    auto cb = [](lv_event_t *e) {
+        sLc = (LcAction)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    };
+    sLc = LC_NONE;
+
+    const int  LC_N           = 20;        // 2 s at the HX711's 10 Hz
+    const long LC_SATURATED   = 8388000;   // just inside +-2^23
+    const long LC_FLOATING    = 50000;
+    const long LC_NOISY       = 3000;
+    const uint32_t LC_SILENT_MS = 1500;
+
+    lv_obj_t *scr = lv_obj_create(nullptr);
+    lv_obj_set_style_bg_color(scr, LVCOL_BG, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lvglAddHeader(scr, t(I18N_TOOL_CALTEST), cb, nullptr, (intptr_t)LC_BACK);
+
+    // Four reading cards, two by two: title muted on top, value below. The
+    // top-right corner of a card carries a secondary figure when it has one.
+    auto card = [&](int x, int y, const char *title, lv_obj_t **val, lv_obj_t **corner) {
+        lv_obj_t *c = lv_obj_create(scr);
+        lv_obj_remove_style_all(c);
+        lv_obj_set_size(c, 225, 76);
+        lv_obj_set_pos(c, x, y);
+        lv_obj_set_style_bg_color(c, LVCOL_CARD, 0);
+        lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(c, LVCOL_BORDER, 0);
+        lv_obj_set_style_border_width(c, 1, 0);
+        lv_obj_set_style_radius(c, 8, 0);
+        lv_obj_clear_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t *tl = lv_label_create(c);
+        lv_label_set_text(tl, title);
+        lv_obj_set_style_text_color(tl, LVCOL_MUTED, 0);
+        lv_obj_set_style_text_font(tl, &gFont14, 0);
+        lv_obj_set_pos(tl, 10, 8);
+        *val = lv_label_create(c);
+        lv_label_set_text(*val, "--");
+        lv_obj_set_style_text_color(*val, LVCOL_TEXT, 0);
+        lv_obj_set_style_text_font(*val, &lv_font_montserrat_28, 0);
+        lv_obj_set_pos(*val, 10, 34);
+        if (corner) {
+            *corner = lv_label_create(c);
+            lv_label_set_text(*corner, "");
+            lv_obj_set_style_text_color(*corner, LVCOL_MUTED, 0);
+            lv_obj_set_style_text_font(*corner, &gFont14, 0);
+            lv_obj_align(*corner, LV_ALIGN_TOP_RIGHT, -10, 8);
+        }
+    };
+    lv_obj_t *rawVal, *rateLbl, *spreadVal, *minMaxLbl, *deltaVal, *gramVal;
+    card(10, 56, t(I18N_HX_RAW), &rawVal, &rateLbl);
+    card(245, 56, t(I18N_HX_SPREAD), &spreadVal, &minMaxLbl);
+    card(10, 140, t(I18N_HX_DELTA), &deltaVal, nullptr);
+    card(245, 140, "g", &gramVal, nullptr);
+
+    lv_obj_t *verdict = lv_label_create(scr);
+    lv_label_set_text(verdict, "");
+    lv_obj_set_style_text_font(verdict, &gFont16, 0);
+    lv_label_set_long_mode(verdict, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(verdict, 460);
+    lv_obj_set_style_text_align(verdict, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(verdict, 10, 224);
+
+    auto button = [&](int x, bool primary, const char *text, LcAction act) {
+        lv_obj_t *b = lv_btn_create(scr);
+        lv_obj_set_size(b, 225, 46);
+        lv_obj_set_pos(b, x, 266);
+        lv_obj_set_style_bg_color(b, primary ? LVCOL_ACCENT : LVCOL_CARD, 0);
+        lv_obj_set_style_border_color(b, LVCOL_BORDER, 0);
+        lv_obj_set_style_border_width(b, primary ? 0 : 1, 0);
+        lv_obj_set_style_radius(b, 12, 0);
+        lv_obj_set_style_shadow_width(b, 0, 0);
+        lv_obj_set_user_data(b, (void *)(intptr_t)act);
+        lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, nullptr);
+        lv_obj_t *l = lv_label_create(b);
+        lv_label_set_text(l, text);
+        lv_obj_set_style_text_color(l, LVCOL_TEXT, 0);
+        lv_obj_set_style_text_font(l, &gFont16, 0);
+        lv_obj_center(l);
+    };
+    button(10, false, t(I18N_HX_SET_REF), LC_REF);
+    button(245, true, t(I18N_CALIBRATE), LC_CAL);
+
+    long     ring[LC_N];
+    int      ringN = 0, ringI = 0;
+    uint32_t lastSampleMs = 0, rateT0 = millis(), rateCount = 0, lastUi = 0;
+    float    rate = 0.0f;
+    double   ref = 0.0; bool refSet = false;
+    double   mean = 0.0;
+
+    lv_scr_load(scr);
+    lvglDrainPress(800);
+
+    while (sLc != LC_BACK) {
+        lv_timer_handler(); delay(5);
+        wifiKeepAlive();
+
+        if (scale.is_ready()) {
+            ring[ringI] = scale.read();
+            ringI = (ringI + 1) % LC_N;
+            if (ringN < LC_N) ringN++;
+            lastSampleMs = millis();
+            rateCount++;
+        }
+
+        if (sLc == LC_REF) {
+            sLc = LC_NONE;
+            if (ringN > 0) { ref = mean; refSet = true; }
+        } else if (sLc == LC_CAL) {
+            sLc = LC_NONE;
+            runCalibrationWizard();          // ends on lvScreen; come back here
+            lv_scr_load(scr);
+            ringN = ringI = 0; refSet = false; lastSampleMs = 0;
+            rateT0 = millis(); rateCount = 0;
+            lvglDrainPress(800);
+        }
+
+        uint32_t now = millis();
+        if (now - lastUi < 300) continue;
+        lastUi = now;
+        if (now - rateT0 >= 2000) { rate = rateCount * 1000.0f / (now - rateT0); rateCount = 0; rateT0 = now; }
+
+        long mn = 0, mx = 0;
+        if (ringN > 0) {
+            double sum = 0; mn = LONG_MAX; mx = LONG_MIN;
+            for (int i = 0; i < ringN; i++) { long v = ring[i]; sum += v; if (v < mn) mn = v; if (v > mx) mx = v; }
+            mean = sum / ringN;
+        }
+        long spread = ringN > 0 ? mx - mn : 0;
+        long delta  = refSet ? lround(mean - ref) : 0;
+        // React threshold: 10 g through the stored factor when there is one
+        // (counts per gram), else a flat count that a firm press always beats.
+        float  f = fabs(calibrationFactor);
+        long reactCounts = f >= 0.5f ? lround(f * 10.0f) : 2000;
+
+        // snprintf, not lv_label_set_text_fmt: LVGL's own printf is built
+        // without float support here (LV_SPRINTF_USE_FLOAT 0).
+        char b[48];
+        bool silent = lastSampleMs == 0 || now - lastSampleMs > LC_SILENT_MS;
+        if (silent) {
+            lv_label_set_text(rawVal, "--");
+            lv_label_set_text(spreadVal, "--");
+            lv_label_set_text(minMaxLbl, "");
+            lv_label_set_text(gramVal, "--");
+        } else {
+            snprintf(b, sizeof b, "%ld", lround(mean));  lv_label_set_text(rawVal, b);
+            snprintf(b, sizeof b, "%ld", spread);        lv_label_set_text(spreadVal, b);
+            snprintf(b, sizeof b, LV_SYMBOL_DOWN " %ld  " LV_SYMBOL_UP " %ld", mn, mx);
+            lv_label_set_text(minMaxLbl, b);
+            float g = f >= 0.5f ? (float)((mean - scale.get_offset()) / calibrationFactor) : 0.0f;
+            snprintf(b, sizeof b, "%d", roundWeight(g)); lv_label_set_text(gramVal, b);
+        }
+        snprintf(b, sizeof b, "%.1f /s", rate); lv_label_set_text(rateLbl, b);
+        if (refSet && !silent) { snprintf(b, sizeof b, "%+ld", delta); lv_label_set_text(deltaVal, b); }
+        else                   lv_label_set_text(deltaVal, "--");
+
+        LangKey vk; lv_color_t vc;
+        if (silent)                                  { vk = I18N_HX_SILENT;    vc = LVCOL_RED; }
+        else if (mx >= LC_SATURATED || mn <= -LC_SATURATED) { vk = I18N_HX_SATURATED; vc = LVCOL_RED; }
+        else if (refSet && labs(delta) >= reactCounts) { vk = I18N_HX_REACTS;    vc = LVCOL_GREEN; }
+        else if (spread > LC_FLOATING)               { vk = I18N_HX_FLOATING;  vc = LVCOL_RED; }
+        else if (spread > LC_NOISY)                  { vk = I18N_HX_NOISY;     vc = LVCOL_ORANGE; }
+        else                                         { vk = I18N_HX_STABLE;    vc = LVCOL_GREEN; }
+        if (strcmp(lv_label_get_text(verdict), t(vk)) != 0) lv_label_set_text(verdict, t(vk));
+        lv_obj_set_style_text_color(verdict, vc, 0);
+        lv_obj_set_style_text_color(deltaVal, refSet && !silent && labs(delta) >= reactCounts ? LVCOL_GREEN : LVCOL_TEXT, 0);
+    }
+
+    lv_scr_load(backTo);
+    lv_obj_del(scr);
+    lvglDrainPress(800);
+}
+
+// Heat press memo: a reference card for a heat press. Pick a technique, then a
+// product, and the screen shows temperature, time, pressure and peel, with a
+// countdown started by a touch. The list lives in LittleFS as /presse.json and
+// is edited from a browser at /presse (presse_page.h) -- the scale's own web
+// server, so no separate access point and no extra page in data/www.
+//
+//   {"settings":{"defaults":true},
+//    "categories":[{"name","color":"#RRGGBB",
+//                   "items":[{"name","temp","time","pressure","peel","note"}]}]}
+//
+// "defaults" is true only on the list written here when none exists, and the
+// editor clears it on save: it is what makes the category screen say the
+// values are indicative until the owner has made the list their own.
+//
+// The JSON document is the data model, held in PSRAM while the tool is open
+// and freed when it closes, so the tool costs nothing to the weigh workflow.
+// The HTTP handlers run on the async server's task, never touch LVGL or the
+// open document: they validate, replace the file, and raise gPresseChanged,
+// which the tool's own loop picks up.
+
+#define PRESSE_PATH      "/presse.json"
+#define PRESSE_TMP_PATH  "/presse.tmp"
+#define PRESSE_MAX_BYTES 16384
+
+// PresseJsonDocument (a JSON document in PSRAM) is defined in presse_page.h:
+// the .ino converter emits the prototypes of the functions below at the top of
+// the file, so the type they take has to exist before any .ino line does.
+
+static volatile bool gPresseChanged = false;   // set by the HTTP handlers
+
+// PRESSE_DEFAULTS_EN / _FR live in presse_page.h: raw string literals in the
+// .ino are scanned by the prototype generator, headers are not.
+static const char *presseDefaults() {
+    return gLanguage == LANG_FR ? PRESSE_DEFAULTS_FR : PRESSE_DEFAULTS_EN;
+}
+
+// The shape check both the device and the HTTP handlers apply: an object with
+// a "categories" array. Anything else is refused rather than half-shown.
+static bool presseValid(const JsonDocument &doc) {
+    return doc["categories"].is<JsonArrayConst>();
+}
+
+// Replace the file in two steps so a reader never sees half a list.
+static bool presseWriteFile(const char *data, size_t len) {
+    File f = LittleFS.open(PRESSE_TMP_PATH, "w");
+    if (!f) return false;
+    bool ok = f.write((const uint8_t *)data, len) == len;
+    f.close();
+    if (!ok) { LittleFS.remove(PRESSE_TMP_PATH); return false; }
+    LittleFS.remove(PRESSE_PATH);
+    return LittleFS.rename(PRESSE_TMP_PATH, PRESSE_PATH);
+}
+
+// Loads the list into `doc`; writes the defaults first when there is none or
+// it does not parse.
+static void presseLoad(PresseJsonDocument &doc) {
+    if (LittleFS.exists(PRESSE_PATH)) {
+        File f = LittleFS.open(PRESSE_PATH, "r");
+        if (f) {
+            DeserializationError err = deserializeJson(doc, f);
+            f.close();
+            if (!err && presseValid(doc)) return;
+        }
+    }
+    const char *def = presseDefaults();
+    presseWriteFile(def, strlen(def));
+    deserializeJson(doc, def);
+}
+
+static lv_color_t presseColor(const char *hex) {
+    if (!hex || hex[0] != '#' || strlen(hex) < 7) return LVCOL_CARD;
+    return lv_color_hex(strtoul(hex + 1, nullptr, 16));
+}
+
+// The address the list is edited at, or "" with no WiFi.
+static String presseEditUrl() {
+    if (!WiFi.isConnected()) return String("");
+    return String("http://") + WiFi.localIP().toString() + "/presse";
+}
+
+static lv_obj_t* presseNewScreen() {
+    lv_obj_t *scr = lv_obj_create(nullptr);
+    lv_obj_set_style_bg_color(scr, LVCOL_BG, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    return scr;
+}
+
+static lv_obj_t* presseList(lv_obj_t *scr, int bottom) {
+    lv_obj_t *list = lv_obj_create(scr);
+    lv_obj_remove_style_all(list);
+    lv_obj_set_size(list, 480, bottom - 49);
+    lv_obj_set_pos(list, 0, 49);
+    lv_obj_set_style_pad_top(list, 8, 0);
+    lv_obj_set_style_pad_bottom(list, 8, 0);
+    lv_obj_set_style_pad_hor(list, 10, 0);
+    lv_obj_set_style_pad_row(list, 8, 0);
+    lv_obj_set_style_pad_column(list, 10, 0);
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    lvglStyleScrollbar(list);
+    return list;
+}
+
+static void presseEmptyNote(lv_obj_t *scr) {
+    lv_obj_t *box = lv_obj_create(scr);
+    lv_obj_remove_style_all(box);
+    lv_obj_set_size(box, 480, 320 - 49);
+    lv_obj_set_pos(box, 0, 49);
+    lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *col = lv_obj_create(box);
+    lv_obj_remove_style_all(col);
+    lv_obj_set_size(col, 400, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(col, 8, 0);
+    lv_obj_center(col);
+    lvglAddCenteredLabel(col, t(I18N_PR_EMPTY), LVCOL_MUTED, &gFont16);
+    String url = presseEditUrl();
+    if (url.length()) lvglAddCenteredLabel(col, url, LVCOL_ACCENT, &gFont16);
+    else              lvglAddCenteredLabel(col, t(I18N_NO_WIFI), LVCOL_RED, &gFont16);
+}
+
+static void runPresseMemo(lv_obj_t *backTo) {
+    // The editor is served by the async server, which loop() normally starts
+    // a few seconds after boot. Opening this tool straight from the start menu
+    // runs before that point, so start it here rather than leave /presse dark.
+    if (ENABLE_HTTP_SERVER && gWebServerStartPending && !gWebServerStarted && !gWebServerStarting) {
+        gWebServerStarting = true;
+        startWebServerNow();
+    }
+
+    PresseJsonDocument doc(PRESSE_MAX_BYTES * 2);
+    presseLoad(doc);
+    gPresseChanged = false;
+
+    enum PmAction { PM_NONE, PM_BACK, PM_PICK, PM_START, PM_RESET };
+    static PmAction sAct;
+    static int sPick;
+    auto cb = [](lv_event_t *e) {
+        lv_obj_t *o = (lv_obj_t *)lv_event_get_current_target(e);
+        intptr_t v = (intptr_t)lv_obj_get_user_data(o);
+        if (v >= 100) { sPick = (int)(v - 100); sAct = PM_PICK; }
+        else          sAct = (PmAction)v;
+    };
+
+    int level = 0, cat = 0, item = 0;       // 0 categories, 1 products, 2 detail
+    lv_obj_t *cur = nullptr;                // this tool's screen on display
+
+    for (;;) {
+        sAct = PM_NONE;
+        JsonArray cats = doc["categories"].as<JsonArray>();
+        if (level >= 1 && cat >= (int)cats.size()) { level = 0; cat = 0; }
+        JsonObject c = level >= 1 ? cats[cat].as<JsonObject>() : JsonObject();
+        JsonArray items = level >= 1 ? c["items"].as<JsonArray>() : JsonArray();
+        if (level == 2 && item >= (int)items.size()) level = 1;
+
+        lv_obj_t *scr = presseNewScreen();
+
+        // Detail-screen widgets the timer updates in place.
+        lv_obj_t *timeVal = nullptr, *bar = nullptr, *startBtn = nullptr, *startLbl = nullptr;
+        int presetTime = 0;
+        const char *peel = "";
+
+        if (level == 0) {
+            lvglAddHeader(scr, t(I18N_TOOL_PRESSE), cb, nullptr, (intptr_t)PM_BACK);
+            bool defaults = doc["settings"]["defaults"] | false;
+            String url = presseEditUrl();
+            int footer = (defaults ? 1 : 0) + (url.length() ? 1 : 0);
+            if (cats.size() == 0) {
+                presseEmptyNote(scr);
+            } else {
+                lv_obj_t *list = presseList(scr, 320 - footer * 20 - (footer ? 6 : 0));
+                lv_obj_set_flex_flow(list, LV_FLEX_FLOW_ROW_WRAP);
+                int i = 0;
+                for (JsonObject k : cats) {
+                    lv_obj_t *tile = lv_btn_create(list);
+                    lv_obj_set_size(tile, 225, 70);
+                    lv_color_t col = presseColor(k["color"] | "#555555");
+                    lv_obj_set_style_bg_color(tile, col, 0);
+                    lv_obj_set_style_border_width(tile, 0, 0);
+                    lv_obj_set_style_radius(tile, 12, 0);
+                    lv_obj_set_style_shadow_width(tile, 0, 0);
+                    lv_obj_set_user_data(tile, (void *)(intptr_t)(100 + i));
+                    lv_obj_add_event_cb(tile, cb, LV_EVENT_CLICKED, nullptr);
+                    lv_obj_t *l = lv_label_create(tile);
+                    const char *catName = k["name"] | "-";   // owner data, not UI text
+                    lv_label_set_text(l, catName);
+                    lv_obj_set_style_text_color(l, LVCOL_TEXT, 0);
+                    lv_obj_set_style_text_font(l, &gFont20, 0);
+                    lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+                    lv_obj_set_width(l, 205);
+                    lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+                    lv_obj_center(l);
+                    i++;
+                }
+                int y = 320 - footer * 20 - 4;
+                if (defaults) {
+                    lv_obj_t *n = lv_label_create(scr);
+                    lv_label_set_text(n, t(I18N_PR_INDICATIVE));
+                    lv_obj_set_style_text_color(n, LVCOL_YELLOW, 0);
+                    lv_obj_set_style_text_font(n, &gFont14, 0);
+                    lv_label_set_long_mode(n, LV_LABEL_LONG_DOT);
+                    lv_obj_set_width(n, 460);
+                    lv_obj_set_style_text_align(n, LV_TEXT_ALIGN_CENTER, 0);
+                    lv_obj_set_pos(n, 10, y);
+                    y += 20;
+                }
+                if (url.length()) {
+                    lv_obj_t *u = lv_label_create(scr);
+                    lv_label_set_text(u, url.c_str());
+                    lv_obj_set_style_text_color(u, LVCOL_MUTED, 0);
+                    lv_obj_set_style_text_font(u, &gFont14, 0);
+                    lv_obj_set_width(u, 460);
+                    lv_obj_set_style_text_align(u, LV_TEXT_ALIGN_CENTER, 0);
+                    lv_obj_set_pos(u, 10, y);
+                }
+            }
+        } else if (level == 1) {
+            lvglAddHeader(scr, c["name"] | "-", cb, nullptr, (intptr_t)PM_BACK);
+            if (items.size() == 0) {
+                presseEmptyNote(scr);
+            } else {
+                lv_obj_t *list = presseList(scr, 320);
+                lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+                lv_color_t accent = presseColor(c["color"] | "#555555");
+                int i = 0;
+                for (JsonObject it : items) {
+                    lv_obj_t *row = lv_btn_create(list);
+                    lv_obj_set_size(row, LV_PCT(100), 56);
+                    lv_obj_set_style_bg_color(row, LVCOL_CARD, 0);
+                    lv_obj_set_style_border_color(row, LVCOL_BORDER, 0);
+                    lv_obj_set_style_border_width(row, 1, 0);
+                    lv_obj_set_style_radius(row, 10, 0);
+                    lv_obj_set_style_shadow_width(row, 0, 0);
+                    lv_obj_set_style_pad_all(row, 0, 0);
+                    lv_obj_set_user_data(row, (void *)(intptr_t)(100 + i));
+                    lv_obj_add_event_cb(row, cb, LV_EVENT_CLICKED, nullptr);
+                    // The category's colour as a stripe: the tile you came from.
+                    lv_obj_t *stripe = lv_obj_create(row);
+                    lv_obj_remove_style_all(stripe);
+                    lv_obj_set_size(stripe, 6, 56);
+                    lv_obj_set_style_bg_color(stripe, accent, 0);
+                    lv_obj_set_style_bg_opa(stripe, LV_OPA_COVER, 0);
+                    lv_obj_clear_flag(stripe, LV_OBJ_FLAG_CLICKABLE);
+                    lv_obj_t *n = lv_label_create(row);
+                    const char *itemName = it["name"] | "-";  // owner data, not UI text
+                    lv_label_set_text(n, itemName);
+                    lv_obj_set_style_text_color(n, LVCOL_TEXT, 0);
+                    lv_obj_set_style_text_font(n, &gFont16, 0);
+                    lv_label_set_long_mode(n, LV_LABEL_LONG_DOT);
+                    lv_obj_set_width(n, 260);
+                    lv_obj_align(n, LV_ALIGN_LEFT_MID, 20, 0);
+                    char buf[40];
+                    snprintf(buf, sizeof buf, "%d °C  ·  %d s", (int)(it["temp"] | 0), (int)(it["time"] | 0));
+                    lv_obj_t *v = lv_label_create(row);
+                    lv_label_set_text(v, buf);
+                    lv_obj_set_style_text_color(v, LVCOL_YELLOW, 0);
+                    lv_obj_set_style_text_font(v, &gFont16, 0);
+                    lv_obj_align(v, LV_ALIGN_RIGHT_MID, -14, 0);
+                    i++;
+                }
+            }
+        } else {
+            JsonObject it = items[item].as<JsonObject>();
+            lvglAddHeader(scr, it["name"] | "-", cb, nullptr, (intptr_t)PM_BACK);
+            presetTime = constrain((int)(it["time"] | 0), 0, 999);
+            int temp = constrain((int)(it["temp"] | 0), 0, 250);
+            peel = it["peel"] | "";
+
+            auto bigCard = [&](int x, const char *title, int value, const char *unit,
+                               lv_color_t col) -> lv_obj_t* {
+                lv_obj_t *cd = lv_obj_create(scr);
+                lv_obj_remove_style_all(cd);
+                lv_obj_set_size(cd, 225, 110);
+                lv_obj_set_pos(cd, x, 56);
+                lv_obj_set_style_bg_color(cd, LVCOL_CARD, 0);
+                lv_obj_set_style_bg_opa(cd, LV_OPA_COVER, 0);
+                lv_obj_set_style_border_color(cd, LVCOL_BORDER, 0);
+                lv_obj_set_style_border_width(cd, 1, 0);
+                lv_obj_set_style_radius(cd, 10, 0);
+                lv_obj_clear_flag(cd, LV_OBJ_FLAG_SCROLLABLE);
+                lv_obj_t *tl = lv_label_create(cd);
+                lv_label_set_text(tl, title);
+                lv_obj_set_style_text_color(tl, LVCOL_MUTED, 0);
+                lv_obj_set_style_text_font(tl, &gFont14, 0);
+                lv_obj_set_pos(tl, 12, 8);
+                lv_obj_t *v = lv_label_create(cd);
+                char b[12]; snprintf(b, sizeof b, "%d", value);
+                lv_label_set_text(v, b);
+                lv_obj_set_style_text_color(v, col, 0);
+                lv_obj_set_style_text_font(v, &lv_font_montserrat_48, 0);
+                lv_obj_set_pos(v, 12, 38);
+                lv_obj_t *u = lv_label_create(cd);
+                lv_label_set_text(u, unit);
+                lv_obj_set_style_text_color(u, col, 0);
+                lv_obj_set_style_text_font(u, &gFont20, 0);
+                lv_obj_align(u, LV_ALIGN_BOTTOM_RIGHT, -14, -16);
+                return v;
+            };
+            bigCard(10, t(I18N_PR_TEMP), temp, "°C", LVCOL_ORANGE);
+            timeVal = bigCard(245, t(I18N_PR_TIME), presetTime, "s", lv_color_hex(0x3FC8E4));
+
+            auto field = [&](int x, const char *title, const char *value) {
+                lv_obj_t *tl = lv_label_create(scr);
+                lv_label_set_text(tl, title);
+                lv_obj_set_style_text_color(tl, LVCOL_MUTED, 0);
+                lv_obj_set_style_text_font(tl, &gFont14, 0);
+                lv_obj_set_pos(tl, x, 174);
+                lv_obj_t *v = lv_label_create(scr);
+                lv_label_set_text(v, (value && value[0]) ? value : "-");
+                lv_obj_set_style_text_color(v, LVCOL_TEXT, 0);
+                lv_obj_set_style_text_font(v, &gFont20, 0);
+                lv_label_set_long_mode(v, LV_LABEL_LONG_DOT);
+                lv_obj_set_width(v, 220);
+                lv_obj_set_pos(v, x, 192);
+            };
+            field(12, t(I18N_PR_PRESSURE), it["pressure"] | "");
+            field(247, t(I18N_PR_PEEL), peel);
+
+            const char *note = it["note"] | "";
+            if (note[0]) {
+                lv_obj_t *n = lv_label_create(scr);
+                lv_label_set_text(n, note);
+                lv_obj_set_style_text_color(n, LVCOL_YELLOW, 0);
+                lv_obj_set_style_text_font(n, &gFont14, 0);
+                lv_label_set_long_mode(n, LV_LABEL_LONG_DOT);
+                lv_obj_set_width(n, 456);
+                lv_obj_set_pos(n, 12, 222);
+            }
+
+            bar = lv_bar_create(scr);
+            lv_obj_set_size(bar, 460, 8);
+            lv_obj_set_pos(bar, 10, 244);
+            lv_bar_set_range(bar, 0, 1000);
+            lv_bar_set_value(bar, 0, LV_ANIM_OFF);
+            lv_obj_set_style_bg_color(bar, LVCOL_CARD, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(bar, LVCOL_GREEN, LV_PART_INDICATOR);
+
+            startBtn = lv_btn_create(scr);
+            lv_obj_set_size(startBtn, 460, 54);
+            lv_obj_set_pos(startBtn, 10, 258);
+            lv_obj_set_style_bg_color(startBtn, LVCOL_GREEN, 0);
+            lv_obj_set_style_radius(startBtn, 12, 0);
+            lv_obj_set_style_shadow_width(startBtn, 0, 0);
+            lv_obj_set_user_data(startBtn, (void *)(intptr_t)PM_START);
+            lv_obj_add_event_cb(startBtn, cb, LV_EVENT_CLICKED, nullptr);
+            startLbl = lv_label_create(startBtn);
+            lv_label_set_text(startLbl, t(I18N_PR_START));
+            lv_obj_set_style_text_color(startLbl, LVCOL_TEXT, 0);
+            lv_obj_set_style_text_font(startLbl, &gFont20, 0);
+            lv_obj_center(startLbl);
+            if (presetTime <= 0) {
+                lv_obj_add_state(startBtn, LV_STATE_DISABLED);
+                lv_obj_set_style_bg_color(startBtn, LVCOL_CARD, LV_STATE_DISABLED);
+            }
+        }
+
+        lv_scr_load(scr);
+        if (cur) lv_obj_del(cur);
+        cur = scr;
+        lvglDrainPress(800);
+
+        // Timer state, detail screen only.
+        enum { TM_IDLE, TM_RUNNING, TM_DONE } tm = TM_IDLE;
+        uint32_t t0 = 0, durMs = (uint32_t)presetTime * 1000UL, lastUi = 0;
+        int shownSec = presetTime;
+        lv_obj_t *alert = nullptr, *alertCard = nullptr;
+        bool rebuild = false;
+
+        auto setTime = [&](int secs, lv_color_t col) {
+            char b[12]; snprintf(b, sizeof b, "%d", secs);
+            lv_label_set_text(timeVal, b);
+            lv_obj_set_style_text_color(timeVal, col, 0);
+        };
+        auto toIdle = [&]() {
+            tm = TM_IDLE;
+            if (alert) { lv_obj_del(alert); alert = nullptr; alertCard = nullptr; }
+            setTime(presetTime, lv_color_hex(0x3FC8E4));
+            lv_bar_set_value(bar, 0, LV_ANIM_OFF);
+            lv_obj_set_style_bg_color(bar, LVCOL_GREEN, LV_PART_INDICATOR);
+            lv_obj_set_style_bg_color(startBtn, LVCOL_GREEN, 0);
+            lv_label_set_text(startLbl, t(I18N_PR_START));
+            shownSec = presetTime;
+        };
+
+        while (!rebuild) {
+            lv_timer_handler(); delay(5);
+            wifiKeepAlive();
+
+            if (gPresseChanged) {
+                // A save from the editor: reload and start over from the
+                // categories, as the list under the open screen may be gone.
+                gPresseChanged = false;
+                doc.clear();
+                presseLoad(doc);
+                level = 0; cat = 0; item = 0;
+                rebuild = true;
+                break;
+            }
+
+            if (sAct == PM_BACK) {
+                if (level == 0) {
+                    lv_scr_load(backTo);
+                    lv_obj_del(cur);
+                    lvglDrainPress(800);
+                    return;                    // doc is freed on the way out
+                }
+                level--;
+                rebuild = true;
+            } else if (sAct == PM_PICK) {
+                if (level == 0) { cat = sPick; level = 1; }
+                else            { item = sPick; level = 2; }
+                rebuild = true;
+            } else if (sAct == PM_START) {
+                sAct = PM_NONE;
+                if (tm == TM_IDLE && presetTime > 0) {
+                    tm = TM_RUNNING;
+                    t0 = millis();
+                    lv_obj_set_style_bg_color(startBtn, LVCOL_RED, 0);
+                    lv_label_set_text(startLbl, t(I18N_PR_STOP));
+                    playBeeps(1800, 80, 1);
+                } else if (tm == TM_RUNNING) {
+                    toIdle();
+                }
+            } else if (sAct == PM_RESET) {
+                sAct = PM_NONE;
+                toIdle();
+                lvglDrainPress(600);
+            }
+            if (rebuild) break;
+
+            if (tm != TM_IDLE && millis() - lastUi >= 100) {
+                lastUi = millis();
+                uint32_t el = millis() - t0;
+                if (tm == TM_RUNNING) {
+                    if (el >= durMs) {
+                        tm = TM_DONE;
+                        setTime(0, LVCOL_ORANGE);
+                        lv_bar_set_value(bar, 1000, LV_ANIM_OFF);
+                        lv_obj_set_style_bg_color(bar, LVCOL_ORANGE, LV_PART_INDICATOR);
+
+                        // Full-screen alert: the press is across the room, a
+                        // label change would go unseen. The whole panel is the
+                        // reset target -- one touch, anywhere.
+                        alert = lv_obj_create(scr);
+                        lv_obj_remove_style_all(alert);
+                        lv_obj_set_size(alert, 480, 320);
+                        lv_obj_set_pos(alert, 0, 0);
+                        lv_obj_set_style_bg_color(alert, lv_color_hex(0x04070B), 0);
+                        lv_obj_set_style_bg_opa(alert, 220, 0);
+                        lv_obj_add_flag(alert, LV_OBJ_FLAG_CLICKABLE);
+                        lv_obj_clear_flag(alert, LV_OBJ_FLAG_SCROLLABLE);
+                        lv_obj_set_user_data(alert, (void *)(intptr_t)PM_RESET);
+                        lv_obj_add_event_cb(alert, cb, LV_EVENT_CLICKED, nullptr);
+                        alertCard = lv_obj_create(alert);
+                        lv_obj_remove_style_all(alertCard);
+                        lv_obj_set_size(alertCard, 420, 240);
+                        lv_obj_center(alertCard);
+                        lv_obj_set_style_bg_color(alertCard, LVCOL_ORANGE, 0);
+                        lv_obj_set_style_bg_opa(alertCard, LV_OPA_COVER, 0);
+                        lv_obj_set_style_radius(alertCard, 16, 0);
+                        lv_obj_clear_flag(alertCard, LV_OBJ_FLAG_CLICKABLE);
+                        lv_obj_clear_flag(alertCard, LV_OBJ_FLAG_SCROLLABLE);
+                        lv_obj_set_flex_flow(alertCard, LV_FLEX_FLOW_COLUMN);
+                        lv_obj_set_flex_align(alertCard, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+                        lv_obj_set_style_pad_row(alertCard, 10, 0);
+                        // gFont20, not a bigger face: only the fallback-carrying
+                        // copies have the accented and Han letters of "Done!".
+                        lvglAddCenteredLabel(alertCard, t(I18N_PR_DONE), LVCOL_TEXT, &gFont20);
+                        String pl = String(t(I18N_PR_PEEL)) + ": " + String(peel[0] ? peel : "-");
+                        lvglAddCenteredLabel(alertCard, pl, LVCOL_TEXT, &gFont20);
+                        lvglAddCenteredLabel(alertCard, t(I18N_PR_TOUCH_RESET), LVCOL_BG, &gFont14);
+
+                        lv_obj_set_style_bg_color(startBtn, LVCOL_ORANGE, 0);
+                        lv_label_set_text(startLbl, t(I18N_PR_TOUCH_RESET));
+                        lv_timer_handler();               // show it before the beeps block
+                        playBeeps(2600, 180, 3);
+                    } else {
+                        int remain = (int)((durMs - el + 999) / 1000);
+                        if (remain != shownSec) {
+                            shownSec = remain;
+                            setTime(remain, remain <= 3 ? LVCOL_ORANGE : LVCOL_TEXT);
+                            if (remain <= 3) playBeeps(1500, 60, 1);
+                        }
+                        lv_bar_set_value(bar, (int32_t)(el * 1000ULL / durMs), LV_ANIM_OFF);
+                    }
+                } else if (alertCard) {
+                    // Blink until touched.
+                    bool on = (el / 500) % 2 == 0;
+                    lv_obj_set_style_bg_color(alertCard, on ? LVCOL_ORANGE : LVCOL_RED, 0);
+                }
+            }
+        }
+    }
+}
+
+struct LauncherTool {
+    const char *fixedName;              // language-neutral name, or nullptr to use nameKey
+    LangKey     nameKey;
+    LangKey     subKey;
+    const char *icon;                   // an LV_SYMBOL_* glyph
+    uint32_t    iconColor;
+    void      (*run)(lv_obj_t *backTo); // nullptr = leave the launcher for the weigh workflow
+};
+static const LauncherTool kLauncherTools[] = {
+    { "Tiger Scale", I18N_COUNT,        I18N_TOOL_TIGERSCALE_SUB, LV_SYMBOL_REFRESH,  0x2F7FFF, nullptr },
+    { nullptr,       I18N_TOOL_PARCEL,  I18N_TOOL_PARCEL_SUB,     LV_SYMBOL_DOWNLOAD, 0xE8821E, runParcelScale },
+    { nullptr,       I18N_TOOL_CALTEST, I18N_TOOL_CALTEST_SUB,    LV_SYMBOL_SETTINGS, 0x3BA55D, runLoadCellTest },
+    { nullptr,       I18N_TOOL_PRESSE,  I18N_TOOL_PRESSE_SUB,     LV_SYMBOL_CHARGE,   0xE24B4A, runPresseMemo },
+};
+static const int kLauncherToolCount = sizeof(kLauncherTools) / sizeof(kLauncherTools[0]);
+
+// Blocks until "Tiger Scale" is picked, then leaves the weigh screen loaded.
+// Called from loop()'s top level only, like runSettingsMenu().
+static void runLauncher() {
+    if (!lvglReady) return;
+    if (lvScreen == nullptr) lvglBuildMainScreen();   // the tools' wizards exit onto it
+
+    static int sPick;
+    auto cb = [](lv_event_t *e) {
+        sPick = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    };
+    lv_obj_t *prevScr = nullptr;
+
+    for (;;) {
+        sPick = -1;
+
+        lv_obj_t *scr = lv_obj_create(nullptr);
+        lv_obj_set_style_bg_color(scr, LVCOL_BG, 0);
+        lv_obj_set_style_border_width(scr, 0, 0);
+        lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+
+        // Same 48 px band and divider as lvglAddHeader(), minus the back
+        // chevron: this is the root, there is nothing to go back to.
+        lv_obj_t *title = lv_label_create(scr);
+        lv_label_set_text(title, t(I18N_TOOLS_TITLE));
+        lv_obj_set_style_text_color(title, LVCOL_TEXT, 0);
+        lv_obj_set_style_text_font(title, &gFont20, 0);
+        lv_obj_align(title, LV_ALIGN_TOP_LEFT, 20, 13);
+        lv_obj_t *ver = lv_label_create(scr);
+        lv_label_set_text(ver, "v" TIGERSCALE_FW_VERSION);
+        lv_obj_set_style_text_color(ver, LVCOL_FAINT, 0);
+        lv_obj_set_style_text_font(ver, &gFont14, 0);
+        lv_obj_align(ver, LV_ALIGN_TOP_RIGHT, -16, 17);
+        lv_obj_t *div = lv_obj_create(scr);
+        lv_obj_remove_style_all(div);
+        lv_obj_set_size(div, 480, 1);
+        lv_obj_set_style_bg_color(div, LVCOL_BORDER, 0);
+        lv_obj_set_style_bg_opa(div, LV_OPA_COVER, 0);
+        lv_obj_set_pos(div, 0, 47);
+
+        lv_obj_t *list = lv_obj_create(scr);
+        lv_obj_remove_style_all(list);
+        lv_obj_set_size(list, 480, 320 - 49);
+        lv_obj_set_pos(list, 0, 49);
+        lv_obj_set_style_pad_top(list, 8, 0);
+        lv_obj_set_style_pad_bottom(list, 8, 0);
+        lv_obj_set_style_pad_hor(list, 10, 0);
+        lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_row(list, 8, 0);
+        lv_obj_set_scroll_dir(list, LV_DIR_VER);
+        lvglStyleScrollbar(list);
+
+        for (int i = 0; i < kLauncherToolCount; i++) {
+            const LauncherTool &tool = kLauncherTools[i];
+            lv_obj_t *row = lv_btn_create(list);
+            lv_obj_set_size(row, LV_PCT(100), 76);
+            lv_obj_set_style_bg_color(row, LVCOL_CARD, 0);
+            lv_obj_set_style_border_color(row, LVCOL_BORDER, 0);
+            lv_obj_set_style_border_width(row, 1, 0);
+            lv_obj_set_style_radius(row, 10, 0);
+            lv_obj_set_style_shadow_width(row, 0, 0);
+            lv_obj_set_style_pad_all(row, 0, 0);
+            lv_obj_set_user_data(row, (void *)(intptr_t)i);
+            lv_obj_add_event_cb(row, cb, LV_EVENT_CLICKED, nullptr);
+
+            lv_obj_t *icon = lv_label_create(row);
+            lv_label_set_text(icon, tool.icon);
+            lv_obj_set_style_text_color(icon, lv_color_hex(tool.iconColor), 0);
+            lv_obj_set_style_text_font(icon, &lv_font_montserrat_28, 0);
+            lv_obj_align(icon, LV_ALIGN_LEFT_MID, 18, 0);
+
+            lv_obj_t *name = lv_label_create(row);
+            lv_label_set_text(name, tool.fixedName ? tool.fixedName : t(tool.nameKey));
+            lv_obj_set_style_text_color(name, LVCOL_TEXT, 0);
+            lv_obj_set_style_text_font(name, &gFont20, 0);
+            lv_obj_set_pos(name, 66, 14);
+
+            lv_obj_t *sub = lv_label_create(row);
+            lv_label_set_text(sub, t(tool.subKey));
+            lv_obj_set_style_text_color(sub, LVCOL_MUTED, 0);
+            lv_obj_set_style_text_font(sub, &gFont14, 0);
+            lv_label_set_long_mode(sub, LV_LABEL_LONG_DOT);
+            lv_obj_set_width(sub, 330);
+            lv_obj_set_pos(sub, 66, 44);
+
+            lv_obj_t *chev = lv_label_create(row);
+            lv_label_set_text(chev, LV_SYMBOL_RIGHT);
+            lv_obj_set_style_text_color(chev, LVCOL_MUTED, 0);
+            lv_obj_set_style_text_font(chev, &lv_font_montserrat_28, 0);
+            lv_obj_align(chev, LV_ALIGN_RIGHT_MID, -12, 0);
+        }
+
+        lv_scr_load(scr);
+        if (prevScr) { lv_obj_del(prevScr); prevScr = nullptr; }
+        lvglDrainPress(800);
+
+        while (sPick < 0) { lv_timer_handler(); delay(5); wifiKeepAlive(); }
+
+        const LauncherTool &tool = kLauncherTools[sPick];
+        if (!tool.run) {
+            lv_scr_load(lvScreen);
+            lv_obj_del(scr);
+            lvglDrainPress(800);
+            return;
+        }
+        tool.run(scr);      // comes back with scr loaded again
+        prevScr = scr;      // rebuilt next turn: the language may have changed
+    }
+}
+
 // LVGL settings menu (2026-07-28) -- same actions/functions as the old
 // raw-gfx grid, same blocking call convention (callers just call
 // runSettingsMenu() and it returns once the user backs out), rebuilt as an
 // LVGL screen. Sub-screens (calibration wizard, hardware test, wifi setup,
 // etc.) are untouched raw-gfx and still called exactly as before.
 static void runSettingsMenu() {
-    enum SettingsAction { SA_NONE, SA_WIFI, SA_FIREBASE, SA_VOLUME, SA_SCREEN, SA_CALIBRATE, SA_LANGUAGE, SA_HARDWARE, SA_LAN, SA_UPDATE, SA_REBOOT, SA_POWEROFF, SA_FACTORY, SA_BACK };
+    enum SettingsAction { SA_NONE, SA_TOOLS, SA_WIFI, SA_FIREBASE, SA_VOLUME, SA_SCREEN, SA_CALIBRATE, SA_LANGUAGE, SA_HARDWARE, SA_LAN, SA_UPDATE, SA_REBOOT, SA_POWEROFF, SA_FACTORY, SA_BACK };
     static SettingsAction sAction;
     lv_obj_t *prevScr = nullptr;
     lv_coord_t savedScrollY = 0;   // survives sub-screen round-trips, not menu exits
@@ -7680,6 +8617,11 @@ static void runSettingsMenu() {
         // questions without opening anything: the SSID rather than the IP
         // (that is what a person recognises), the account's display name, the
         // running firmware version.
+        //
+        // First row: the way back to the start menu, where the other tools
+        // (parcel scale, calibration & test) live.
+        makeRow(CI_GLYPH, LV_SYMBOL_LIST, LVCOL_TEXT, t(I18N_TOOLS_MENU), String(""), SA_TOOLS);
+
         String wifiVal = wifiConnected ? WiFi.SSID() : String(t(I18N_NO_WIFI));
         makeRow(CI_GLYPH, LV_SYMBOL_WIFI, wifiConnected ? LVCOL_GREEN : LVCOL_RED,
                 "WiFi", wifiVal, SA_WIFI);
@@ -7857,6 +8799,8 @@ static void runSettingsMenu() {
         savedScrollY = lv_obj_get_scroll_y(list);
 
         if (sAction == SA_BACK) { lv_scr_load(lvScreen); lv_obj_del(scr); break; }
+        // Leave Settings entirely; loop() opens the launcher from its top level.
+        if (sAction == SA_TOOLS) { gLauncherRequested = true; lv_scr_load(lvScreen); lv_obj_del(scr); break; }
 
         switch (sAction) {
             case SA_WIFI: {
@@ -8074,6 +9018,49 @@ void setupWiFi() {
     } else {
         Serial.println("[WIFI] offline - use WiFi button on scale screen");
     }
+}
+
+// Reconnect on our own. setupWiFi() turns the driver's auto-reconnect off --
+// it would go back to the cached BSSID, see wifiBeginBestAp() -- so without
+// this a scale that loses its access point stays offline until it reboots,
+// and one that booted with the router down never comes online at all.
+//
+// Non-blocking: every WIFI_RETRY_MS while the link is down it starts one
+// attempt with the stored credentials and returns; the event handler sees
+// the result. Called from loop() and from the blocking start-menu tools, so
+// a scale left on a tool screen recovers too. It stays out of the way of the
+// setup screens: they run their own loops and never call it, and it leaves
+// the radio alone whenever it is not in plain station mode.
+static void wifiKeepAlive() {
+    const uint32_t WIFI_RETRY_MS = 30000;
+    static uint32_t sDownSinceMs = 0, sLastTryMs = 0;
+    if (!gBootComplete) return;                 // setupWiFi() is still on it
+    uint32_t now = millis();
+
+    if (WiFi.status() == WL_CONNECTED) {
+        if (sDownSinceMs != 0) {
+            // Back after a drop, or online for the first time after an
+            // offline boot: redo what setupWiFi() does on a connect.
+            WiFi.setSleep(false);
+            if (time(nullptr) < 1700000000) configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+            Serial.printf("[WIFI] reconnected after %lus\n", (unsigned long)((now - sDownSinceMs) / 1000));
+            sDownSinceMs = 0;
+        }
+        return;
+    }
+    if (WiFi.getMode() != WIFI_STA) return;     // a setup portal owns the radio
+    if (sDownSinceMs == 0) { sDownSinceMs = now; sLastTryMs = now; return; }
+    if (now - sLastTryMs < WIFI_RETRY_MS) return;
+    sLastTryMs = now;
+
+    prefs.begin("ts-wifi", true);
+    String ssid = prefs.getString("ssid", "");
+    String pass = prefs.getString("pass", "");
+    prefs.end();
+    if (ssid.length() == 0) return;             // never configured: nothing to retry
+    Serial.printf("[WIFI] down %lus, retrying '%s'\n",
+                  (unsigned long)((now - sDownSinceMs) / 1000), ssid.c_str());
+    wifiBeginBestAp(ssid.c_str(), pass.c_str());
 }
 
 // ============================================================================
@@ -10995,6 +11982,67 @@ void setupWebServer() {
         request->send(r);
     });
 
+    // Heat press memo (§9, runPresseMemo): its editor page and its list. The
+    // handlers never touch LVGL or the tool's open document -- they replace
+    // the file and raise gPresseChanged, and the tool reloads on its own loop.
+    // /api/presse/reset is registered before /api/presse on purpose: a handler
+    // also answers every path under its own, so the other order would hand the
+    // reset to the save.
+    server.on("/presse", HTTP_GET, [](AsyncWebServerRequest *request){
+        AsyncWebServerResponse *r =
+            request->beginResponse_P(200, "text/html; charset=utf-8", PRESSE_PAGE);
+        r->addHeader("Cache-Control", "no-store");
+        request->send(r);
+    });
+    server.on("/api/presse/reset", HTTP_POST, [](AsyncWebServerRequest *request){
+        const char *def = presseDefaults();
+        if (!presseWriteFile(def, strlen(def))) {
+            request->send(500, "text/plain", "write failed"); return;
+        }
+        gPresseChanged = true;
+        request->send(200, "text/plain", "OK");
+    });
+    server.on("/api/presse", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (LittleFS.exists(PRESSE_PATH)) {
+            AsyncWebServerResponse *r = request->beginResponse(LittleFS, PRESSE_PATH, "application/json");
+            r->addHeader("Cache-Control", "no-store");
+            request->send(r); return;
+        }
+        request->send(200, "application/json", presseDefaults());
+    });
+    server.on("/api/presse", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
+        [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
+            if (total == 0 || total > PRESSE_MAX_BYTES) {
+                if (index == 0) request->send(413, "text/plain", "list too large");
+                return;
+            }
+            // The body can arrive in several chunks: gather it in PSRAM. The
+            // request frees _tempObject itself when it is destroyed.
+            if (index == 0) {
+                void *b = heap_caps_malloc(total + 1, MALLOC_CAP_SPIRAM);
+                if (!b) b = malloc(total + 1);
+                request->_tempObject = b;
+                if (!b) { request->send(500, "text/plain", "out of memory"); return; }
+            }
+            char *buf = (char *)request->_tempObject;
+            if (!buf) return;
+            memcpy(buf + index, data, len);
+            if (index + len < total) return;
+            buf[total] = '\0';
+            // const char*: ArduinoJson parses a mutable buffer in place, and
+            // this buffer is what gets written to the file next.
+            PresseJsonDocument doc(PRESSE_MAX_BYTES * 2);
+            if (deserializeJson(doc, (const char *)buf, total) || !presseValid(doc)) {
+                request->send(400, "text/plain", "invalid list"); return;
+            }
+            if (!presseWriteFile(buf, total)) {
+                request->send(500, "text/plain", "write failed"); return;
+            }
+            gPresseChanged = true;
+            request->send(200, "text/plain", "OK");
+        }
+    );
+
     // The screen as a picture.
     //
     // No mirror sprite and no copy in the flush callback: `gfx` is an
@@ -12494,9 +13542,8 @@ static void playSilence(int durationMs) {
     for (int i = 0; i < total; i++) spkI2s.write(buf, 4);
 }
 
-// Play the current sound theme (gSoundTheme). Synchronous, call from main loop only.
-static void playSoundTheme() {
-    if (gMute) return;
+// Brings the codec and the I2S link up on first use. False = no sound output.
+static bool spkEnsureReady() {
     if (!spkReady) {
         Wire1.beginTransmission(ES8311_I2C_ADDR);
         uint8_t scanErr = Wire1.endTransmission();
@@ -12508,11 +13555,27 @@ static void playSoundTheme() {
         if (!spkI2s.begin(I2S_MODE_STD, 16000,
                           I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO)) {
             log_e("[BEEP] I2S begin() failed");
-            return;
+            return false;
         }
         spkReady = true;
         log_e("[BEEP] ES8311 + I2S ready");
     }
+    return true;
+}
+
+// `count` tones of `freqHz` for `ms` each, a short gap between them. Honours
+// mute. Synchronous, like playSoundTheme(): call from the main loop only.
+static void playBeeps(int freqHz, int ms, int count) {
+    if (gMute || !spkEnsureReady()) return;
+    for (int i = 0; i < count; i++) {
+        if (i) playSilence(120);
+        playNote(freqHz, ms);
+    }
+}
+
+// Play the current sound theme (gSoundTheme). Synchronous, call from main loop only.
+static void playSoundTheme() {
+    if (gMute || !spkEnsureReady()) return;
     switch (gSoundTheme) {
         case 0:  // Beep — single 880 Hz pulse
             playNote(880, 200);
@@ -16294,6 +17357,15 @@ void loop() {
         // language → WiFi → account before anything else, iPhone-style.
         gFirstRunPending = false;
         runFirstBootOnboarding();
+        if (lvScreen) lv_obj_invalidate(lvScreen);
+    }
+    wifiKeepAlive();
+    if (gLauncherRequested && gBootComplete) {
+        // Start menu: once at boot (after onboarding, before the reminders
+        // below arm), and again whenever Settings -> Tools asks for it.
+        // Returns once "Tiger Scale" is picked, with the weigh screen loaded.
+        gLauncherRequested = false;
+        runLauncher();
         if (lvScreen) lv_obj_invalidate(lvScreen);
     }
     {
