@@ -14,6 +14,11 @@ scaffold's placeholder text.
 
 Nothing yet.
 
+## [v3.13.0-mt.2](docs/release-notes/v3.13.0-mt.2.md)
+
+Heat press memo: the page-up / page-down arrows at the right edge, shown only when
+the category or product list does not fit on one screen.
+
 ## [v3.13.0-mt.1](docs/release-notes/v3.13.0-mt.1.md)
 
 First Tiger Multi-tools release (unofficial fork): a start menu of tools (TigerPOD,

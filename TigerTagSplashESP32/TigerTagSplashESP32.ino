@@ -23,26 +23,26 @@
 //   CONFIGURATION VARIABLES                               1824- 2253
 //   OLED DISPLAY                                          2254- 3037
 //   CLOUD PARSING                                         3038- 3052
-//   WIFI SETUP                                            3053-10049
-//   LITTLEFS                                             10050-10349
-//   FIREBASE AUTHENTICATION                              10350-12032
-//   WEBSOCKET                                            12033-12059
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12060-12194
-//   UNIFIED WS FRAME BUILDER                             12195-12319
-//   WEIGHT FILTER HELPERS                                12320-12334
-//   POST-SEND STATE RESET (shared by all send paths)     12335-12355
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 12356-12459
-//   WEB SERVER                                           12460-13588
-//   CLOUD COMMUNICATION                                  13589-13771
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 13772-14279
-//   mDNS                                                 14280-14317
-//   SCALE                                                14318-14488
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  14489-14621
-//   RFID                                                 14622-15704
-//   OTA — Over-the-air firmware + filesystem update    15705-16384
-//   LVGL bridge + main weigh screen                      16385-17348
-//   Remote live view: the screen out, taps back in       17349-18198
-//   SETUP & LOOP                                         18199-19454
+//   WIFI SETUP                                            3053-10064
+//   LITTLEFS                                             10065-10364
+//   FIREBASE AUTHENTICATION                              10365-12047
+//   WEBSOCKET                                            12048-12074
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12075-12209
+//   UNIFIED WS FRAME BUILDER                             12210-12334
+//   WEIGHT FILTER HELPERS                                12335-12349
+//   POST-SEND STATE RESET (shared by all send paths)     12350-12370
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 12371-12474
+//   WEB SERVER                                           12475-13603
+//   CLOUD COMMUNICATION                                  13604-13786
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 13787-14294
+//   mDNS                                                 14295-14332
+//   SCALE                                                14333-14503
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  14504-14636
+//   RFID                                                 14637-15719
+//   OTA — Over-the-air firmware + filesystem update    15720-16399
+//   LVGL bridge + main weigh screen                      16400-17363
+//   Remote live view: the screen out, taps back in       17364-18213
+//   SETUP & LOOP                                         18214-19469
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -462,7 +462,7 @@ const char* TIGERTAG_FIREBASE_WEB_API_KEY = "AIzaSyCkxPTs_Cv0KVLqsZj-UKWWqIY0Otf
 
 // Embedded build identity — exposed via /api/status and the heartbeat so the
 // app/Studio can compare against the latest published version.json.
-#define TIGERSCALE_FW_VERSION  "3.13.0-mt.1"
+#define TIGERSCALE_FW_VERSION  "3.13.0-mt.2"
 
 // Which board this binary was built for, as it appears on the silkscreen. The
 // published manifest keys its per-board firmware entries by exactly this
@@ -8006,6 +8006,19 @@ static lv_obj_t* presseList(lv_obj_t *scr, int bottom) {
     return list;
 }
 
+// The page-up / page-down rail of the other screens, only when the tiles do
+// not all fit: the list then narrows to make room for it. A list that fits
+// keeps the full width and gets no arrows.
+static void presseRailIfNeeded(lv_obj_t *scr, lv_obj_t *list, int bottom) {
+    lv_obj_update_layout(list);
+    if (lv_obj_get_scroll_bottom(list) <= 0) return;
+    lv_obj_set_width(list, 428);
+    lv_obj_set_style_pad_left(list, 10, 0);
+    lv_obj_set_style_pad_right(list, 6, 0);
+    lvglStyleScrollbar(list);
+    lvglAddScrollRail(scr, list, 57, bottom - 8, bottom - 49 - 40);
+}
+
 static void presseEmptyNote(lv_obj_t *scr) {
     lv_obj_t *box = lv_obj_create(scr);
     lv_obj_remove_style_all(box);
@@ -8108,6 +8121,7 @@ static void runPresseMemo(lv_obj_t *backTo) {
                     i++;
                 }
                 presseGrid(list, 0, i, bottom - 49 - 16, 64, 120);
+                presseRailIfNeeded(scr, list, bottom);
                 int y = 320 - footer - 2;
                 if (defaults) {
                     lv_obj_t *n = lv_label_create(scr);
@@ -8184,6 +8198,7 @@ static void runPresseMemo(lv_obj_t *backTo) {
                     i++;
                 }
                 presseGrid(list, 1, i, 320 - 49 - 16, 64, 110);
+                presseRailIfNeeded(scr, list, 320);
             }
         } else {
             JsonObject it = items[item].as<JsonObject>();
