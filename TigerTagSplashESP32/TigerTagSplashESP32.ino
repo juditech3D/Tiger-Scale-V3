@@ -19,30 +19,30 @@
 //   OTA CONFIGURATION                                      460-  496
 //   FORWARD DECLARATIONS                                   497-  807
 //   WEIGHT ROUNDING                                        808-  840
-//   GLOBAL OBJECTS                                         841- 1823
-//   CONFIGURATION VARIABLES                               1824- 2253
-//   OLED DISPLAY                                          2254- 3037
-//   CLOUD PARSING                                         3038- 3052
-//   WIFI SETUP                                            3053-10064
-//   LITTLEFS                                             10065-10364
-//   FIREBASE AUTHENTICATION                              10365-12047
-//   WEBSOCKET                                            12048-12074
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12075-12209
-//   UNIFIED WS FRAME BUILDER                             12210-12334
-//   WEIGHT FILTER HELPERS                                12335-12349
-//   POST-SEND STATE RESET (shared by all send paths)     12350-12370
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 12371-12474
-//   WEB SERVER                                           12475-13603
-//   CLOUD COMMUNICATION                                  13604-13786
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 13787-14294
-//   mDNS                                                 14295-14332
-//   SCALE                                                14333-14503
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  14504-14636
-//   RFID                                                 14637-15719
-//   OTA — Over-the-air firmware + filesystem update    15720-16399
-//   LVGL bridge + main weigh screen                      16400-17363
-//   Remote live view: the screen out, taps back in       17364-18213
-//   SETUP & LOOP                                         18214-19469
+//   GLOBAL OBJECTS                                         841- 1841
+//   CONFIGURATION VARIABLES                               1842- 2271
+//   OLED DISPLAY                                          2272- 3055
+//   CLOUD PARSING                                         3056- 3070
+//   WIFI SETUP                                            3071-10236
+//   LITTLEFS                                             10237-10536
+//   FIREBASE AUTHENTICATION                              10537-12219
+//   WEBSOCKET                                            12220-12246
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12247-12381
+//   UNIFIED WS FRAME BUILDER                             12382-12506
+//   WEIGHT FILTER HELPERS                                12507-12521
+//   POST-SEND STATE RESET (shared by all send paths)     12522-12542
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 12543-12646
+//   WEB SERVER                                           12647-13775
+//   CLOUD COMMUNICATION                                  13776-13958
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 13959-14466
+//   mDNS                                                 14467-14504
+//   SCALE                                                14505-14675
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  14676-14808
+//   RFID                                                 14809-15891
+//   OTA — Over-the-air firmware + filesystem update    15892-16571
+//   LVGL bridge + main weigh screen                      16572-17535
+//   Remote live view: the screen out, taps back in       17536-18385
+//   SETUP & LOOP                                         18386-19643
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -462,7 +462,7 @@ const char* TIGERTAG_FIREBASE_WEB_API_KEY = "AIzaSyCkxPTs_Cv0KVLqsZj-UKWWqIY0Otf
 
 // Embedded build identity — exposed via /api/status and the heartbeat so the
 // app/Studio can compare against the latest published version.json.
-#define TIGERSCALE_FW_VERSION  "3.13.0-mt.2"
+#define TIGERSCALE_FW_VERSION  "3.13.0-mt.3"
 
 // Which board this binary was built for, as it appears on the silkscreen. The
 // published manifest keys its per-board firmware entries by exactly this
@@ -1195,6 +1195,21 @@ static const uint8_t PN532_RF_LEVEL_COUNT = sizeof(PN532_RF_LEVELS) / sizeof(PN5
 // Settings -> RFID -> Auto still re-measures per unit.
 uint8_t gRfidPowerLevel = 7;
 
+// Receive gain: the RFCfg byte's RxGain field (bits 6:4) -- how hard the module
+// listens, as opposed to how hard it transmits, which is gRfidPowerLevel.
+// Codes 4-7 are 33/38/43/48 dB; 0-3 (18-23 dB) are too deaf to be any use here
+// and are not offered. 5 (38 dB) is the datasheet default, the value every
+// reader ran at before this setting existed and every measurement in
+// docs/RFID-PERFORMANCE.md was taken at. Raising it may reach a chip that
+// answers weakly (small, deep in the hub); it also hears more noise, so it is
+// the owner's experiment, set from Settings -> RFID, not a new default.
+static const uint8_t RFID_RX_GAIN_MIN = 4, RFID_RX_GAIN_MAX = 7, RFID_RX_GAIN_DEFAULT = 5;
+uint8_t gRfidRxGain = RFID_RX_GAIN_DEFAULT;
+static uint8_t rfidRxGainDb(uint8_t code) {
+    static const uint8_t db[8] = { 18, 23, 18, 23, 33, 38, 43, 48 };
+    return db[code & 7];
+}
+
 // How long a poll waits for the module to report a card, and how hard the
 // module tries before giving up.
 //
@@ -1267,7 +1282,9 @@ static void applyPN532RfTuning(Adafruit_PN532 &pn532, uint8_t level, const char 
     uint8_t cmd[13] = {
         PN532_COMMAND_RFCONFIGURATION,
         0x0A, // CfgItem: analog settings, 106 kbps type A (reader mode)
-        0x59, // RFCfg (RxGain) -- untouched, datasheet default
+        // RFCfg: RxGain from the owner's setting (gRfidRxGain), the rest of
+        // the byte at its datasheet default (0x59 = 38 dB).
+        (uint8_t)((0x59 & 0x8F) | ((gRfidRxGain & 0x07) << 4)),
         lv.gsNOn,
         lv.cwGsP,
         lv.modGsP,
@@ -1311,6 +1328,7 @@ static void applyPN532RfTuning(Adafruit_PN532 &pn532, uint8_t level, const char 
     // a whole session looking for a configuration failure that had not
     // happened.
     netLog("RFTUNE " + String(label) + " L" + String(level)
+           + " G" + String(rfidRxGainDb(gRfidRxGain)) + "dB"
            + (acked ? " applied" : " sent, ACK not recognised"));
 }
 
@@ -5260,7 +5278,7 @@ static void runHardwareTest() {
     String uid1 = "", uid2 = "";
     bool scanning = false;
 
-    enum HwAction { HA_NONE, HA_MINUS, HA_PLUS, HA_PILL1, HA_PILL2, HA_SCAN, HA_AUTO, HA_BACK };
+    enum HwAction { HA_NONE, HA_MINUS, HA_PLUS, HA_GMINUS, HA_GPLUS, HA_PILL1, HA_PILL2, HA_SCAN, HA_AUTO, HA_BACK };
     static HwAction sHwAction;
     auto actionCb = [](lv_event_t *e) {
         lv_obj_t *o = (lv_obj_t *)lv_event_get_target(e);
@@ -5330,6 +5348,48 @@ static void runHardwareTest() {
     lv_obj_set_style_text_color(plusLbl, LVCOL_MUTED, 0);
     lv_obj_set_style_text_font(plusLbl, &gFont20, 0);
     lv_obj_center(plusLbl);
+
+    // Receive-gain stepper, between power and the reader pills.
+    lv_obj_t *gainLbl = lv_label_create(scr);
+    lv_label_set_text(gainLbl, t(I18N_RFID_GAIN));
+    lv_obj_set_style_text_color(gainLbl, LVCOL_MUTED, 0);
+    lv_obj_set_style_text_font(gainLbl, &gFont14, 0);
+    lv_label_set_long_mode(gainLbl, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(gainLbl, 170);
+    lv_obj_set_pos(gainLbl, 192, 52);
+    auto stepBtn = [&](int x, const char *sym, HwAction act, lv_obj_t **lblOut) {
+        lv_obj_t *b = lv_btn_create(scr);
+        lv_obj_set_size(b, 44, 44);
+        lv_obj_set_pos(b, x, 68);
+        lv_obj_set_style_bg_color(b, LVCOL_CARD, 0);
+        lv_obj_set_style_border_color(b, LVCOL_BORDER, 0);
+        lv_obj_set_style_border_width(b, 1, 0);
+        lv_obj_set_style_radius(b, 10, 0);
+        lv_obj_set_style_shadow_width(b, 0, 0);
+        lv_obj_set_user_data(b, (void *)(intptr_t)act);
+        lv_obj_add_event_cb(b, actionCb, LV_EVENT_CLICKED, nullptr);
+        lv_obj_t *l = lv_label_create(b);
+        lv_label_set_text(l, sym);
+        lv_obj_set_style_text_font(l, &gFont20, 0);
+        lv_obj_center(l);
+        *lblOut = l;
+    };
+    lv_obj_t *gMinusLbl = nullptr, *gPlusLbl = nullptr;
+    stepBtn(192, "-", HA_GMINUS, &gMinusLbl);
+    lv_obj_t *gainNumBox = lv_obj_create(scr);
+    lv_obj_remove_style_all(gainNumBox);
+    lv_obj_set_size(gainNumBox, 76, 44);
+    lv_obj_set_pos(gainNumBox, 240, 68);
+    lv_obj_set_style_bg_color(gainNumBox, LVCOL_CARD, 0);
+    lv_obj_set_style_bg_opa(gainNumBox, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(gainNumBox, LVCOL_BORDER, 0);
+    lv_obj_set_style_border_width(gainNumBox, 1, 0);
+    lv_obj_set_style_radius(gainNumBox, 10, 0);
+    lv_obj_clear_flag(gainNumBox, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *gainNumLbl = lv_label_create(gainNumBox);
+    lv_obj_set_style_text_font(gainNumLbl, &gFont16, 0);
+    lv_obj_center(gainNumLbl);
+    stepBtn(320, "+", HA_GPLUS, &gPlusLbl);
 
     lv_obj_t *readersLbl = lv_label_create(scr);
     lv_label_set_text(readersLbl, t(I18N_RFID_READERS));
@@ -5444,6 +5504,15 @@ static void runHardwareTest() {
         lv_obj_set_style_text_color(minusLbl, gRfidPowerLevel > 0 ? LVCOL_TEXT : LVCOL_BORDER, 0);
         lv_obj_set_style_text_color(plusLbl,  gRfidPowerLevel < PN532_RF_LEVEL_COUNT-1 ? LVCOL_TEXT : LVCOL_BORDER, 0);
     };
+    auto updateGain = [&]() {
+        lv_label_set_text_fmt(gainNumLbl, "%u dB", (unsigned)rfidRxGainDb(gRfidRxGain));
+        // The datasheet default in the normal colour, anything else in orange:
+        // it is an experiment, and should look like one.
+        lv_obj_set_style_text_color(gainNumLbl,
+            gRfidRxGain == RFID_RX_GAIN_DEFAULT ? LVCOL_TEXT : LVCOL_ORANGE, 0);
+        lv_obj_set_style_text_color(gMinusLbl, gRfidRxGain > RFID_RX_GAIN_MIN ? LVCOL_TEXT : LVCOL_BORDER, 0);
+        lv_obj_set_style_text_color(gPlusLbl,  gRfidRxGain < RFID_RX_GAIN_MAX ? LVCOL_TEXT : LVCOL_BORDER, 0);
+    };
     auto updatePills = [&]() {
         // Cumulative, not exclusive: pill "2" means reader 2 is ALSO active
         // (on top of reader 1), not "instead of" reader 1 -- both light up
@@ -5468,6 +5537,7 @@ static void runHardwareTest() {
     };
 
     updatePower();
+    updateGain();
     updatePills();
     updateBoxes();
     updateScanBtn();
@@ -5489,7 +5559,19 @@ static void runHardwareTest() {
             // Idle: block until a button fires (mirrors tsWaitTap)
             while (sHwAction == HA_NONE) { lv_timer_handler(); delay(5); }
 
-            if (sHwAction == HA_MINUS) {
+            if (sHwAction == HA_GMINUS || sHwAction == HA_GPLUS) {
+                uint8_t g = gRfidRxGain;
+                if (sHwAction == HA_GMINUS && g > RFID_RX_GAIN_MIN) g--;
+                if (sHwAction == HA_GPLUS  && g < RFID_RX_GAIN_MAX) g++;
+                if (g != gRfidRxGain) {
+                    gRfidRxGain = g;
+                    prefs.begin("config", false); prefs.putUChar("rfidRxGain", gRfidRxGain); prefs.end();
+                    // Same command as the power level: RFCfg travels with it.
+                    if (gRfid1Present) rfid1.applyRfPower(gRfidPowerLevel, "R");
+                    if (gRfid2Present) rfid2.applyRfPower(gRfidPowerLevel, "L");
+                    updateGain();
+                }
+            } else if (sHwAction == HA_MINUS) {
                 if (gRfidPowerLevel > 0) {
                     gRfidPowerLevel--;
                     prefs.begin("config", false); prefs.putUChar("rfidPower", gRfidPowerLevel); prefs.end();
@@ -7542,6 +7624,81 @@ static void lvglDrainPress(uint32_t maxMs) {
     while (tsRead(dx, dy) && millis() - t0 < maxMs) delay(20);
 }
 
+// Screen sleep inside the start-menu tools. loop() owns the Tiger Scale
+// screen's sleep (runScreensaver), but every tool blocks loop() for as long as
+// it is open, so the menu, Parcel scale, Calibration & test, Heat press memo
+// and TigerPOD never slept. Same setting, same delay, same countdown
+// (gLastActivityMs, bumped by every touch in tsRead).
+//
+// Unlike runScreensaver() this does not park the caller: TigerPOD has to keep
+// answering Studio and the press memo keeps its timer, so the tool's own loop
+// goes on with the backlight off. A black, clickable panel on the top layer
+// hides the screen and takes the wake tap, so that tap cannot press whatever
+// button is under the finger; it wakes on the lift, not the press, because a
+// press still held when the panel goes would land on the button below.
+//
+//   toolSleepTick(allowed, grams) -- once per pass of the tool's loop.
+//     allowed : false holds the screen on (a press timer counting) and wakes it.
+//     grams   : the load, for tools that read it; a move of 10 g wakes the
+//               screen, as on the Tiger Scale screen. NAN: no weight wake.
+//   toolWake() -- wake now and restart the countdown (a chip put on TigerPOD).
+static lv_obj_t *gToolSleepPanel = nullptr;
+static volatile bool gToolSleepTapped = false;
+static float gToolSleepGrams = NAN;
+
+static void toolSleepPanelCb(lv_event_t *e) {
+    (void)e;
+    gToolSleepTapped = true;      // deleted from toolSleepTick, not from its own event
+}
+
+static void toolWake() {
+    gLastActivityMs = millis();
+    if (gToolSleepPanel == nullptr) return;
+    lv_obj_del(gToolSleepPanel);
+    gToolSleepPanel = nullptr;
+    gToolSleepTapped = false;
+    gScreenOff = false;
+    if (WiFi.isConnected()) { gLastHeartbeatScheduleMs = millis(); gHeartbeatForce = true; gHeartbeatPending = true; }
+    lv_timer_handler();           // repaint under the panel before the light comes back
+    applyBrightness(gBrightness);
+    Serial.println("[SS] Tool screen wake");
+}
+
+static void toolSleepTick(bool allowed, float grams) {
+    if (gToolSleepPanel != nullptr) {
+        if (!allowed || gToolSleepTapped) { toolWake(); return; }
+        if (!isnan(grams)) {
+            if (isnan(gToolSleepGrams)) gToolSleepGrams = grams;
+            else if (fabs(grams - gToolSleepGrams) > 10.0f) {
+                Serial.println("[SS] wake: weight change");
+                toolWake();
+            }
+        }
+        return;
+    }
+    if (!allowed) { gLastActivityMs = millis(); return; }   // countdown starts when it may sleep
+    if (!gSleepEnabled || !gDisplayReady) return;
+    if (millis() - gLastActivityMs <= (uint32_t)gSleepDelayMin * 60000UL) return;
+    { int16_t tx, ty; if (tsRead(tx, ty)) return; }          // a finger is down: not idle
+
+    Serial.println("[SS] Tool screen sleep: backlight off");
+    gToolSleepPanel = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(gToolSleepPanel);
+    lv_obj_set_size(gToolSleepPanel, 480, 320);
+    lv_obj_set_pos(gToolSleepPanel, 0, 0);
+    lv_obj_set_style_bg_color(gToolSleepPanel, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(gToolSleepPanel, LV_OPA_COVER, 0);
+    lv_obj_add_flag(gToolSleepPanel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(gToolSleepPanel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(gToolSleepPanel, toolSleepPanelCb, LV_EVENT_RELEASED, nullptr);
+    gToolSleepTapped = false;
+    gToolSleepGrams = grams;
+    ledcWrite(LCD_BL, 0);
+    lv_timer_handler();
+    gScreenOff = true;
+    if (WiFi.isConnected()) { gLastHeartbeatScheduleMs = millis(); gHeartbeatForce = true; gHeartbeatPending = true; }
+}
+
 // The kitchen-scale TARE button, same look as the calibration wizard's: blue,
 // "0.0" over the word.
 static lv_obj_t* lvglAddTareButton(lv_obj_t *parent, int w, int h, lv_event_cb_t cb, intptr_t action) {
@@ -7601,9 +7758,11 @@ static void runParcelScale(lv_obj_t *backTo) {
     char shown[24] = "";
     lv_color_t shownCol = LVCOL_MUTED;
     uint32_t lastRead = 0;
+    float lastW = NAN;
     while (sPs != PS_BACK) {
         lv_timer_handler(); delay(5);
         wifiKeepAlive();
+        toolSleepTick(true, lastW);
 
         if (sPs == PS_TARE) {
             sPs = PS_NONE;
@@ -7628,6 +7787,7 @@ static void runParcelScale(lv_obj_t *backTo) {
         // Same "offline" rule as readWeight(): a 10 Hz HX711 is not ready most
         // of the time between samples, so only a streak past 600 ms is news.
         bool offline = gHx711NotReadySinceMs != 0 && millis() - gHx711NotReadySinceMs >= 600;
+        lastW = offline ? NAN : w;
         char buf[24];
         lv_color_t col;
         if (offline) { snprintf(buf, sizeof buf, "-- g"); col = LVCOL_RED; }
@@ -7749,6 +7909,8 @@ static void runLoadCellTest(lv_obj_t *backTo) {
     while (sLc != LC_BACK) {
         lv_timer_handler(); delay(5);
         wifiKeepAlive();
+        toolSleepTick(true, (ringN > 0 && fabs(calibrationFactor) >= 0.5f)
+                            ? (float)(mean / calibrationFactor) : NAN);
 
         if (scale.is_ready()) {
             ring[ringI] = scale.read();
@@ -8345,6 +8507,12 @@ static void runPresseMemo(lv_obj_t *backTo) {
         while (!rebuild) {
             lv_timer_handler(); delay(5);
             wifiKeepAlive();
+            // The timer counting, or its alarm still ringing, holds the screen
+            // on; the countdown to sleep starts once it is over. A finished
+            // alert nobody touched then sleeps like any idle screen, and the
+            // first tap only wakes it (the next one resets).
+            toolSleepTick(tm == TM_IDLE
+                          || (tm == TM_DONE && millis() - t0 - durMs >= PRESSE_ALARM_FOR_MS), NAN);
 
             if (gPresseChanged) {
                 // A save from the editor: reload and start over from the
@@ -8727,6 +8895,7 @@ static void runTigerPod(lv_obj_t *backTo) {
     while (sAct != POD_BACK) {
         lv_timer_handler(); delay(5);
         wifiKeepAlive();
+        toolSleepTick(true, NAN);
         showStatus();
 
         // Studio's requests, one at a time.
@@ -8860,6 +9029,7 @@ static void runTigerPod(lv_obj_t *backTo) {
             podWs.textAll(cardMsg(p));
             playBeeps(1760, 40, 1);
             showReader(&p - readers);
+            toolWake();                  // a chip put down is someone at the scale
         } else if (same) {
             p.misses = 0;
         } else if (p.present && ++p.misses >= POD_GONE_MISSES) {
@@ -9200,6 +9370,7 @@ static void runToolPicker(lv_obj_t *backTo) {
             lv_timer_handler();
             delay(5);
             wifiKeepAlive();
+            toolSleepTick(true, NAN);
             if (gToolsChanged) { gToolsChanged = false; rebuild = true; }   // USB / web, while open
             if (sAct == TP_NONE) continue;
             if (sAct == TP_BACK) break;
@@ -9354,6 +9525,7 @@ static void runLauncher() {
 
         while (sPick == -1) {
             lv_timer_handler(); delay(5); wifiKeepAlive();
+            toolSleepTick(true, NAN);
             if (gToolsChanged) { gToolsChanged = false; sPick = -2; }   // USB command: rebuild
         }
         if (sPick == -2) { prevScr = scr; continue; }
@@ -18270,6 +18442,8 @@ void setup() {
     gRfidCountIsAuto     = prefs.getUChar("hwRfidAuto",    1) != 0;
     gRfidPowerLevel      = prefs.getUChar("rfidPower",     7);
     if (gRfidPowerLevel >= PN532_RF_LEVEL_COUNT) gRfidPowerLevel = 7;
+    gRfidRxGain          = prefs.getUChar("rfidRxGain",    RFID_RX_GAIN_DEFAULT);
+    if (gRfidRxGain < RFID_RX_GAIN_MIN || gRfidRxGain > RFID_RX_GAIN_MAX) gRfidRxGain = RFID_RX_GAIN_DEFAULT;
     hwMotorConnected     = prefs.getBool("hwMotorConn",    false);
     hwMotorSpeed         = prefs.getUChar("hwMotorSpd",    0);
     if (hwMotorSpeed > 5) hwMotorSpeed = 0;
