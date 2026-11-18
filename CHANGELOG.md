@@ -14,6 +14,11 @@ scaffold's placeholder text.
 
 Nothing yet.
 
+## [v3.13.0-mt.4](docs/release-notes/v3.13.0-mt.4.md)
+
+The update notification from the start menu and the tools, with a Skip answer;
+RFID Auto calibration also sets the sensitivity.
+
 ## [v3.13.0-mt.3](docs/release-notes/v3.13.0-mt.3.md)
 
 Screen sleep in every start-menu tool, with the Tiger Scale screen's setting and

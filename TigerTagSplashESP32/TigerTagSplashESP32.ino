@@ -20,29 +20,29 @@
 //   FORWARD DECLARATIONS                                   497-  807
 //   WEIGHT ROUNDING                                        808-  840
 //   GLOBAL OBJECTS                                         841- 1841
-//   CONFIGURATION VARIABLES                               1842- 2271
-//   OLED DISPLAY                                          2272- 3055
-//   CLOUD PARSING                                         3056- 3070
-//   WIFI SETUP                                            3071-10236
-//   LITTLEFS                                             10237-10536
-//   FIREBASE AUTHENTICATION                              10537-12219
-//   WEBSOCKET                                            12220-12246
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12247-12381
-//   UNIFIED WS FRAME BUILDER                             12382-12506
-//   WEIGHT FILTER HELPERS                                12507-12521
-//   POST-SEND STATE RESET (shared by all send paths)     12522-12542
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 12543-12646
-//   WEB SERVER                                           12647-13775
-//   CLOUD COMMUNICATION                                  13776-13958
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 13959-14466
-//   mDNS                                                 14467-14504
-//   SCALE                                                14505-14675
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  14676-14808
-//   RFID                                                 14809-15891
-//   OTA — Over-the-air firmware + filesystem update    15892-16571
-//   LVGL bridge + main weigh screen                      16572-17535
-//   Remote live view: the screen out, taps back in       17536-18385
-//   SETUP & LOOP                                         18386-19643
+//   CONFIGURATION VARIABLES                               1842- 2275
+//   OLED DISPLAY                                          2276- 3059
+//   CLOUD PARSING                                         3060- 3074
+//   WIFI SETUP                                            3075-10289
+//   LITTLEFS                                             10290-10589
+//   FIREBASE AUTHENTICATION                              10590-12272
+//   WEBSOCKET                                            12273-12299
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12300-12434
+//   UNIFIED WS FRAME BUILDER                             12435-12559
+//   WEIGHT FILTER HELPERS                                12560-12574
+//   POST-SEND STATE RESET (shared by all send paths)     12575-12595
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 12596-12699
+//   WEB SERVER                                           12700-13828
+//   CLOUD COMMUNICATION                                  13829-14011
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14012-14519
+//   mDNS                                                 14520-14557
+//   SCALE                                                14558-14728
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  14729-14861
+//   RFID                                                 14862-15944
+//   OTA — Over-the-air firmware + filesystem update    15945-16624
+//   LVGL bridge + main weigh screen                      16625-17588
+//   Remote live view: the screen out, taps back in       17589-18438
+//   SETUP & LOOP                                         18439-19715
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -462,7 +462,7 @@ const char* TIGERTAG_FIREBASE_WEB_API_KEY = "AIzaSyCkxPTs_Cv0KVLqsZj-UKWWqIY0Otf
 
 // Embedded build identity — exposed via /api/status and the heartbeat so the
 // app/Studio can compare against the latest published version.json.
-#define TIGERSCALE_FW_VERSION  "3.13.0-mt.3"
+#define TIGERSCALE_FW_VERSION  "3.13.0-mt.4"
 
 // Which board this binary was built for, as it appears on the silkscreen. The
 // published manifest keys its per-board firmware entries by exactly this
@@ -2163,6 +2163,10 @@ static volatile bool gOtaPromptPending = false;
 // every 6 h, and without this it would ask again four times before tomorrow.
 const uint32_t OTA_PROMPT_SNOOZE_MS  = 24UL * 3600UL * 1000UL;
 static uint32_t gOtaPromptSnoozeUntil = 0;   // 0 = never declined
+// A version the owner chose to skip from the prompt (NVS config/otaSkip): the
+// prompt stays quiet for it, and comes back for the next one. Settings > Update
+// still offers it.
+static String gOtaSkipVer;
 static uint32_t gLastDbCheckMs       = 0;    // 0 = no network DB sync performed yet
 static volatile bool gDbUpdateRunning = false; // guard: don't spawn 2 tasks at once
 static bool     gPostFirebaseStabilizePending = false;
@@ -5632,6 +5636,12 @@ static void runHardwareTest() {
                     lvglNotice(t(I18N_RFID_AUTO_HINT));
                 } else {
                     const uint8_t prevLevel = gRfidPowerLevel;
+                    const uint8_t prevGain  = gRfidRxGain;
+                    // The power passes run at the default sensitivity, so a
+                    // past experiment with it cannot bend the level chosen;
+                    // pass 3 then tries each sensitivity at that level.
+                    gRfidRxGain = RFID_RX_GAIN_DEFAULT;
+                    updateGain();
 
                     // One level, measured the way the weigh screen actually
                     // reads: the two readers take turns, and the idle one's
@@ -5672,6 +5682,7 @@ static void runHardwareTest() {
                         // the winner. Logging each row makes the verdict
                         // checkable afterwards instead of having to be trusted.
                         netLog("RFAUTO " + String(pass) + " L" + String((unsigned)lvl)
+                               + " G" + String(rfidRxGainDb(gRfidRxGain)) + "dB"
                                + " left=" + String(nL) + " right=" + String(nR));
                         weak = nL < nR ? nL : nR;
                         total = nL + nR;
@@ -5727,6 +5738,31 @@ static void runHardwareTest() {
                         }
                     }
 
+                    // Pass 3 -- the sensitivity, at the level just chosen: each
+                    // of the four values for the confirmation dwell, the default
+                    // measured in the same pass so all four are compared on equal
+                    // terms. The default is kept unless another value clearly
+                    // beats it (by a tenth, and at least two reads): pass-1 noise
+                    // is a read or two either way, and a gain picked on noise
+                    // would be a gain that hears more noise for nothing.
+                    uint8_t bestGain = RFID_RX_GAIN_DEFAULT;
+                    if (bestWeak > 0) {
+                        int wOf[8], tOf[8];
+                        for (uint8_t g = RFID_RX_GAIN_MIN; g <= RFID_RX_GAIN_MAX; g++) {
+                            gRfidRxGain = g;
+                            updateGain();
+                            measure(bestLvl, RFID_AUTO_CONFIRM_DWELL_MS, "p3", wOf[g], tOf[g]);
+                        }
+                        const int defW = wOf[RFID_RX_GAIN_DEFAULT];
+                        int margin = defW / 10; if (margin < 2) margin = 2;
+                        int bw = defW, bt = tOf[RFID_RX_GAIN_DEFAULT];
+                        for (uint8_t g = RFID_RX_GAIN_MIN; g <= RFID_RX_GAIN_MAX; g++) {
+                            if (g == RFID_RX_GAIN_DEFAULT || wOf[g] < defW + margin) continue;
+                            if (wOf[g] > bw || (wOf[g] == bw && tOf[g] > bt)) { bw = wOf[g]; bt = tOf[g]; bestGain = g; }
+                        }
+                        bestWeak = bw; bestTotal = bt;
+                    }
+
                     // Both carriers back up before leaving: the poll loop puts
                     // them down again on its own schedule, but it must not
                     // inherit one that this sweep happened to leave dark.
@@ -5738,22 +5774,27 @@ static void runHardwareTest() {
                     // means nothing.
                     if (bestWeak <= 0) {
                         gRfidPowerLevel = prevLevel;
+                        gRfidRxGain = prevGain;
                         rfid1.applyRfPower(prevLevel, "R");
                         rfid2.applyRfPower(prevLevel, "L");
-                        updatePower(); updateBoxes();
+                        updatePower(); updateGain(); updateBoxes();
                         lvglNotice(t(I18N_RFID_AUTO_HINT));
                     } else {
                         gRfidPowerLevel = bestLvl;
+                        gRfidRxGain = bestGain;
                         rfid1.applyRfPower(bestLvl, "R");
                         rfid2.applyRfPower(bestLvl, "L");
                         prefs.begin("config", false);
                         prefs.putUChar("rfidPower", bestLvl);
+                        prefs.putUChar("rfidRxGain", bestGain);
                         prefs.end();
-                        updatePower(); updateBoxes();
-                        netLog("RFAUTO best L" + String((unsigned)bestLvl) + " weak=" + String(bestWeak)
+                        updatePower(); updateGain(); updateBoxes();
+                        netLog("RFAUTO best L" + String((unsigned)bestLvl)
+                               + " G" + String(rfidRxGainDb(bestGain)) + "dB weak=" + String(bestWeak)
                                + " total=" + String(bestTotal));
                         String msg = String(t(I18N_RFID_AUTO_BEST)) + " " + String((unsigned)bestLvl)
-                                   + "/" + String((unsigned)(PN532_RF_LEVEL_COUNT - 1));
+                                   + "/" + String((unsigned)(PN532_RF_LEVEL_COUNT - 1))
+                                   + " - " + String(rfidRxGainDb(bestGain)) + " dB";
                         lvglNotice(msg.c_str());
                     }
                 }
@@ -5925,8 +5966,9 @@ static bool lvglAskYesNo(const char *body, const char *sub) {
 // The prompt raised when a new version is detected: download glyph, the
 // question, "v<installed>  >  v<latest>", then Later / Yes -- the same card
 // Tiger Touch shows, in its orange, so the two products announce an update the
-// same way. Returns true for Yes. Same blocking rules as lvglAskYesNo().
-static bool lvglAskUpdate(const char *latest) {
+// same way. Returns 1 for Yes, 0 for Later, 2 for Skip (this version). Same
+// blocking rules as lvglAskYesNo().
+static int lvglAskUpdate(const char *latest) {
     static int sAnswer;
     sAnswer = -1;
     auto answerCb = [](lv_event_t *e) {
@@ -5978,12 +6020,13 @@ static bool lvglAskUpdate(const char *latest) {
     y = line(ver, &gFont16, ORANGE, y + 12);
     y += 16;
 
-    const int BTN_W = (TEXT_W - GAP) / 2;
-    const struct { LangKey key; bool primary; int val; int x; } BTN[2] = {
-        { I18N_LATER, false, 0, PAD               },
-        { I18N_YES,   true,  1, PAD + BTN_W + GAP },
+    const int BTN_W = (TEXT_W - 2 * GAP) / 3;
+    const struct { LangKey key; bool primary; int val; int x; } BTN[3] = {
+        { I18N_OTA_SKIP, false, 2, PAD                       },
+        { I18N_LATER,    false, 0, PAD + BTN_W + GAP         },
+        { I18N_YES,      true,  1, PAD + 2 * (BTN_W + GAP)   },
     };
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 3; i++) {
         lv_obj_t *b = lv_btn_create(card);
         lv_obj_remove_style_all(b);
         lv_obj_set_size(b, BTN_W, BTN_H);
@@ -6009,7 +6052,7 @@ static bool lvglAskUpdate(const char *latest) {
     lv_obj_del(scrim);
     lv_timer_handler();
     { int16_t dx, dy; uint32_t t0 = millis(); while (tsRead(dx, dy) && millis() - t0 < 800) delay(20); }
-    return sAnswer == 1;
+    return sAnswer;
 }
 
 static String lanMakeCode() {
@@ -7642,6 +7685,9 @@ static void lvglDrainPress(uint32_t maxMs) {
 //     grams   : the load, for tools that read it; a move of 10 g wakes the
 //               screen, as on the Tiger Scale screen. NAN: no weight wake.
 //   toolWake() -- wake now and restart the countdown (a chip put on TigerPOD).
+static void otaScheduleCheck();
+static bool otaPromptIfDue();
+
 static lv_obj_t *gToolSleepPanel = nullptr;
 static volatile bool gToolSleepTapped = false;
 static float gToolSleepGrams = NAN;
@@ -7665,6 +7711,10 @@ static void toolWake() {
 }
 
 static void toolSleepTick(bool allowed, float grams) {
+    // Every tool's loop passes here, and every tool blocks loop() -- which is
+    // where the background update check used to live alone, so a scale left
+    // on the start menu never learned there was an update.
+    otaScheduleCheck();
     if (gToolSleepPanel != nullptr) {
         if (!allowed || gToolSleepTapped) { toolWake(); return; }
         if (!isnan(grams)) {
@@ -9526,6 +9576,9 @@ static void runLauncher() {
         while (sPick == -1) {
             lv_timer_handler(); delay(5); wifiKeepAlive();
             toolSleepTick(true, NAN);
+            // An update found while the menu is open: offer it here, as the
+            // weigh screen does. Not while dark: it waits for the wake.
+            if (gOtaPromptPending && gToolSleepPanel == nullptr && otaPromptIfDue()) { sPick = -2; break; }
             if (gToolsChanged) { gToolsChanged = false; sPick = -2; }   // USB command: rebuild
         }
         if (sPick == -2) { prevScr = scr; continue; }
@@ -18443,6 +18496,7 @@ void setup() {
     gRfidPowerLevel      = prefs.getUChar("rfidPower",     7);
     if (gRfidPowerLevel >= PN532_RF_LEVEL_COUNT) gRfidPowerLevel = 7;
     gRfidRxGain          = prefs.getUChar("rfidRxGain",    RFID_RX_GAIN_DEFAULT);
+    gOtaSkipVer          = prefs.getString("otaSkip",      "");
     if (gRfidRxGain < RFID_RX_GAIN_MIN || gRfidRxGain > RFID_RX_GAIN_MAX) gRfidRxGain = RFID_RX_GAIN_DEFAULT;
     hwMotorConnected     = prefs.getBool("hwMotorConn",    false);
     hwMotorSpeed         = prefs.getUChar("hwMotorSpd",    0);
@@ -18575,6 +18629,48 @@ void setup() {
     bootProgress(100, "Ready!");
     delay(1200);
     gBootComplete = true;
+}
+
+// Automatic update check: once shortly after boot, then every 6 h. Mirrors the
+// DB sync block in loop() — a one-shot task so the caller is never blocked.
+// Called from loop() and from every start-menu tool's loop (toolSleepTick).
+static void otaScheduleCheck() {
+    if (!WiFi.isConnected() || gOtaCheckRunning || otaBusy()) return;
+    bool shouldCheck = false;
+    if (gLastOtaCheckMs == 0) {
+        if (millis() >= OTA_CHECK_BOOT_DELAY_MS) shouldCheck = true;
+    } else if (millis() - gLastOtaCheckMs >= OTA_CHECK_INTERVAL_MS) {
+        shouldCheck = true;
+    }
+    if (shouldCheck) {
+        gLastOtaCheckMs  = millis();
+        gOtaCheckRunning = true;
+        xTaskCreatePinnedToCore(otaCheckTaskFn, "otaCheck", 12288, nullptr, 1, nullptr, 0);
+    }
+}
+
+// The update card, if a check found a version that is neither snoozed (Later,
+// 24 h) nor skipped (Skip, until a newer one). Returns true when the card was
+// shown, so a caller that owns its screen knows to rebuild it. Main task only.
+static bool otaPromptIfDue() {
+    if (!gOtaPromptPending) return false;
+    gOtaPromptPending = false;
+    // Signed difference, so this still holds when millis() wraps at 49 days.
+    bool snoozed = gOtaPromptSnoozeUntil != 0
+                   && (int32_t)(millis() - gOtaPromptSnoozeUntil) < 0;
+    if (snoozed || gOtaLatestVer.length() == 0 || gOtaLatestVer == gOtaSkipVer) return false;
+    int a = lvglAskUpdate(gOtaLatestVer.c_str());
+    if (a == 1) {
+        runOtaMenu();
+    } else if (a == 2) {
+        gOtaSkipVer = gOtaLatestVer;
+        prefs.begin("config", false); prefs.putString("otaSkip", gOtaSkipVer); prefs.end();
+        Serial.printf("[OTA] v%s skipped — not offered again\n", gOtaSkipVer.c_str());
+    } else {
+        gOtaPromptSnoozeUntil = millis() + OTA_PROMPT_SNOOZE_MS;
+        Serial.println("[OTA] update declined — not asking again for 24 h");
+    }
+    return true;
 }
 
 void loop() {
@@ -18828,39 +18924,15 @@ void loop() {
     }
 
 
-    // Automatic update check: once shortly after boot, then every 6 h. Mirrors the
-    // DB sync block above — a one-shot task so loop() is never blocked.
-    if (WiFi.isConnected() && !gOtaCheckRunning && !otaBusy()) {
-        bool shouldCheck = false;
-        if (gLastOtaCheckMs == 0) {
-            if (millis() >= OTA_CHECK_BOOT_DELAY_MS) shouldCheck = true;
-        } else if (millis() - gLastOtaCheckMs >= OTA_CHECK_INTERVAL_MS) {
-            shouldCheck = true;
-        }
-        if (shouldCheck) {
-            gLastOtaCheckMs  = millis();
-            gOtaCheckRunning = true;
-            xTaskCreatePinnedToCore(otaCheckTaskFn, "otaCheck", 12288, nullptr, 1, nullptr, 0);
-        }
-    }
+    otaScheduleCheck();
 
     // A version was found: offer it, here on the main task where LVGL is safe.
     // Only from the idle weigh screen — never over a settings sub-screen, and never
-    // in the middle of reading a tag or syncing a spool.
+    // in the middle of reading a tag or syncing a spool. (The start menu offers it
+    // too, from its own loop.)
     if (gOtaPromptPending && wfPhase == WF_IDLE && !rfidTestActive
         && lvScreen != nullptr && lv_scr_act() == lvScreen) {
-        gOtaPromptPending = false;
-        // Signed difference, so this still holds when millis() wraps at 49 days.
-        bool snoozed = gOtaPromptSnoozeUntil != 0
-                       && (int32_t)(millis() - gOtaPromptSnoozeUntil) < 0;
-        if (!snoozed) {
-            if (lvglAskUpdate(gOtaLatestVer.c_str())) {
-                runOtaMenu();
-            } else {
-                gOtaPromptSnoozeUntil = millis() + OTA_PROMPT_SNOOZE_MS;
-                Serial.println("[OTA] update declined — not asking again for 24 h");
-            }
-        }
+        otaPromptIfDue();
     }
 
     // -- RFID antenna sleep/wake ----------------------------------------------
