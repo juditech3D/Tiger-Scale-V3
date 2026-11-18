@@ -24,3 +24,9 @@ log lives in git history and the synthesised entry lives in the changelog.
   sensitivity, updates announced) between the tools and the install steps, and
   the copyright line in the footer (fork, and the original firmware's MIT
   notice). `web-installer/index.html`.
+- Installer page: a heat press memo spotlight right after the hero (the tool
+  the project started from, with a mock of its screen), the hero reworded around
+  several tools on one workshop device, a note that the author tested the 3.5
+  board (3.5B untested), a step 5 "Before first use" (calibrate the scale, run
+  RFID Auto) and a feedback section linking to the fork's issues (report a
+  problem, suggest a tool). `web-installer/index.html`.
