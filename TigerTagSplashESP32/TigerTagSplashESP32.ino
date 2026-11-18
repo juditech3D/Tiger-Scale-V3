@@ -23,26 +23,26 @@
 //   CONFIGURATION VARIABLES                               1842- 2275
 //   OLED DISPLAY                                          2276- 3059
 //   CLOUD PARSING                                         3060- 3074
-//   WIFI SETUP                                            3075-10289
-//   LITTLEFS                                             10290-10589
-//   FIREBASE AUTHENTICATION                              10590-12272
-//   WEBSOCKET                                            12273-12299
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12300-12434
-//   UNIFIED WS FRAME BUILDER                             12435-12559
-//   WEIGHT FILTER HELPERS                                12560-12574
-//   POST-SEND STATE RESET (shared by all send paths)     12575-12595
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 12596-12699
-//   WEB SERVER                                           12700-13828
-//   CLOUD COMMUNICATION                                  13829-14011
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14012-14519
-//   mDNS                                                 14520-14557
-//   SCALE                                                14558-14728
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  14729-14861
-//   RFID                                                 14862-15944
-//   OTA — Over-the-air firmware + filesystem update    15945-16624
-//   LVGL bridge + main weigh screen                      16625-17588
-//   Remote live view: the screen out, taps back in       17589-18438
-//   SETUP & LOOP                                         18439-19715
+//   WIFI SETUP                                            3075-10748
+//   LITTLEFS                                             10749-11048
+//   FIREBASE AUTHENTICATION                              11049-12731
+//   WEBSOCKET                                            12732-12758
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12759-12893
+//   UNIFIED WS FRAME BUILDER                             12894-13018
+//   WEIGHT FILTER HELPERS                                13019-13033
+//   POST-SEND STATE RESET (shared by all send paths)     13034-13054
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13055-13158
+//   WEB SERVER                                           13159-14287
+//   CLOUD COMMUNICATION                                  14288-14470
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14471-14978
+//   mDNS                                                 14979-15016
+//   SCALE                                                15017-15187
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15188-15320
+//   RFID                                                 15321-16403
+//   OTA — Over-the-air firmware + filesystem update    16404-17083
+//   LVGL bridge + main weigh screen                      17084-18047
+//   Remote live view: the screen out, taps back in       18048-18897
+//   SETUP & LOOP                                         18898-20174
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -462,7 +462,7 @@ const char* TIGERTAG_FIREBASE_WEB_API_KEY = "AIzaSyCkxPTs_Cv0KVLqsZj-UKWWqIY0Otf
 
 // Embedded build identity — exposed via /api/status and the heartbeat so the
 // app/Studio can compare against the latest published version.json.
-#define TIGERSCALE_FW_VERSION  "3.13.0-mt.4"
+#define TIGERSCALE_FW_VERSION  "3.13.0-mt.5"
 
 // Which board this binary was built for, as it appears on the silkscreen. The
 // published manifest keys its per-board firmware entries by exactly this
@@ -7772,6 +7772,463 @@ static lv_obj_t* lvglAddTareButton(lv_obj_t *parent, int w, int h, lv_event_cb_t
     return btn;
 }
 
+// ---------------------------------------------------------------------------
+// Shared by the parts counter and the resin mixing tool
+// ---------------------------------------------------------------------------
+
+// The weight these two tools compute with: readWeight()'s median + EMA filter,
+// without the display stages after it. readWeight() takes DEAD_ZONE_G off every
+// reading (it is what keeps the weigh screen at a steady 0 g), so 100 g reads
+// 99 g there -- harmless for a spool, wrong for "how many parts" or "how much
+// hardener". NAN while the HX711 is offline (same 600 ms rule as Parcel scale).
+static float toolPreciseWeight() {
+    readWeight();                      // keeps the filter fed and gIsStable current
+    bool offline = gHx711NotReadySinceMs != 0 && millis() - gHx711NotReadySinceMs >= 600;
+    return offline ? NAN : gEmaWeight;
+}
+
+// The weigh screen's tare: same call, same persisted offset as Parcel scale.
+static void toolTare() {
+    scale.tare();
+    autoTarePending = false;
+    autoTareStableSinceMs = 0;
+    resetWeightFilters();
+    prefs.begin("config", false);
+    prefs.putFloat("tareFactor", scale.get_offset());
+    prefs.end();
+}
+
+static lv_obj_t *toolButton(lv_obj_t *parent, int x, int y, int w, int h, const char *txt,
+                            lv_color_t bg, lv_event_cb_t cb, intptr_t act, bool repeat = false) {
+    lv_obj_t *b = lv_btn_create(parent);
+    lv_obj_set_size(b, w, h);
+    lv_obj_set_pos(b, x, y);
+    lv_obj_set_style_bg_color(b, bg, 0);
+    lv_obj_set_style_border_color(b, LVCOL_BORDER, 0);
+    lv_obj_set_style_border_width(b, 1, 0);
+    lv_obj_set_style_radius(b, 10, 0);
+    lv_obj_set_style_shadow_width(b, 0, 0);
+    lv_obj_set_user_data(b, (void *)act);
+    // A stepper repeats while held; everything else fires once, on release.
+    if (repeat) {
+        lv_obj_add_event_cb(b, cb, LV_EVENT_SHORT_CLICKED, nullptr);
+        lv_obj_add_event_cb(b, cb, LV_EVENT_LONG_PRESSED_REPEAT, nullptr);
+    } else {
+        lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, nullptr);
+    }
+    lv_obj_t *l = lv_label_create(b);
+    lv_label_set_text(l, txt);
+    lv_obj_set_style_text_font(l, &gFont16, 0);
+    lv_obj_set_style_text_color(l, LVCOL_TEXT, 0);
+    lv_obj_center(l);
+    return b;
+}
+
+static lv_obj_t *toolLabel(lv_obj_t *parent, int y, const lv_font_t *font, lv_color_t col) {
+    lv_obj_t *l = lv_label_create(parent);
+    lv_label_set_text(l, "");
+    lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(l, 464);
+    lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(l, font, 0);
+    lv_obj_set_style_text_color(l, col, 0);
+    lv_obj_set_pos(l, 8, y);
+    return l;
+}
+
+// Text only when it changed: these labels are refreshed every 150 ms.
+static void toolSetText(lv_obj_t *l, const char *txt) {
+    if (strcmp(lv_label_get_text(l), txt) != 0) lv_label_set_text(l, txt);
+}
+
+// ---------------------------------------------------------------------------
+// Parts counter
+// ---------------------------------------------------------------------------
+// A step-by-step wizard, because a count is only as good as its reference:
+//   1. empty counting tray on, TARE;
+//   2. N reference parts in (1 to 100, chosen on the screen), Confirm;
+//   3. check: N more parts in, the scale should show 2N. "Correct" re-takes the
+//      part weight over all 2N parts -- twice the reference for free -- and
+//      "Redo" goes back to step 2;
+//   4. count.
+// The part weight is kept (NVS config/cntUnit): next time, with the same parts,
+// "Same parts" at step 2 goes straight to counting.
+//
+// A reference under 10 g puts the load cell's ~1 g noise on every part; the
+// screen says to take more parts.
+static const uint16_t kCountSamples[] = { 1, 2, 5, 10, 20, 50, 100 };
+
+static void runPartsCounter(lv_obj_t *backTo) {
+    enum { CA_NONE, CA_BACK, CA_TARE, CA_MINUS, CA_PLUS, CA_OK, CA_SAME, CA_REDO, CA_GO, CA_NEWREF };
+    static int sAct;
+    auto cb = [](lv_event_t *e) {
+        sAct = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    };
+    sAct = CA_NONE;
+
+    const uint8_t NS = sizeof(kCountSamples) / sizeof(kCountSamples[0]);
+    prefs.begin("config", true);
+    float saved = prefs.getFloat("cntUnit", 0.0f);
+    uint8_t si = prefs.getUChar("cntN", 0);
+    prefs.end();
+    if (si >= NS) si = 0;
+    if (!(saved > 0.0f)) saved = 0.0f;
+
+    enum { ST_TRAY, ST_REF, ST_CHECK, ST_COUNT } st = ST_TRAY;
+    float unit = 0.0f;
+    bool lightRef = false;
+
+    lv_obj_t *scr = lv_obj_create(nullptr);
+    lv_obj_set_style_bg_color(scr, LVCOL_BG, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lvglAddHeader(scr, t(I18N_TOOL_COUNT), cb, nullptr, (intptr_t)CA_BACK);
+
+    lv_obj_t *stepL = toolLabel(scr, 52, &gFont14, LVCOL_MUTED);
+    lv_obj_t *instr = toolLabel(scr, 72, &gFont20, LVCOL_ACCENT);
+    lv_label_set_long_mode(instr, LV_LABEL_LONG_WRAP);
+    lv_obj_t *big   = toolLabel(scr, 128, &lv_font_montserrat_48, LVCOL_TEXT);
+    lv_obj_t *info  = toolLabel(scr, 184, &gFont16, LVCOL_MUTED);
+
+    lv_obj_t *tareBtn = lvglAddTareButton(scr, 110, 64, cb, (intptr_t)CA_TARE);
+    lv_obj_set_pos(tareBtn, 8, 248);
+
+    // Step 2: the sample-size stepper and Confirm, "Same parts" above Confirm.
+    lv_obj_t *minusB = toolButton(scr, 126, 248, 48, 64, "-", LVCOL_CARD, cb, CA_MINUS);
+    lv_obj_t *nBox = lv_label_create(scr);
+    lv_obj_set_width(nBox, 72);
+    lv_obj_set_style_text_align(nBox, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(nBox, &gFont20, 0);
+    lv_obj_set_style_text_color(nBox, LVCOL_TEXT, 0);
+    lv_obj_set_pos(nBox, 176, 268);
+    lv_obj_t *plusB = toolButton(scr, 250, 248, 48, 64, "+", LVCOL_CARD, cb, CA_PLUS);
+    lv_obj_t *nCap = lv_label_create(scr);
+    lv_label_set_text(nCap, t(I18N_CNT_PCS));
+    lv_obj_set_style_text_font(nCap, &gFont14, 0);
+    lv_obj_set_style_text_color(nCap, LVCOL_MUTED, 0);
+    lv_obj_set_width(nCap, 172);
+    lv_obj_set_style_text_align(nCap, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(nCap, 126, 228);
+    lv_obj_t *okB   = toolButton(scr, 308, 248, 164, 64, t(I18N_CNT_VALIDATE), LVCOL_ACCENT, cb, CA_OK);
+    lv_obj_t *sameB = toolButton(scr, 308, 196, 164, 44, t(I18N_CNT_SAME), LVCOL_CARD, cb, CA_SAME);
+    // Step 3.
+    lv_obj_t *redoB = toolButton(scr, 126, 248, 172, 64, t(I18N_CNT_REDO), LVCOL_CARD, cb, CA_REDO);
+    lv_obj_t *goB   = toolButton(scr, 308, 248, 164, 64, t(I18N_CNT_GO), LVCOL_GREEN, cb, CA_GO);
+    // Step 4.
+    lv_obj_t *newB  = toolButton(scr, 308, 248, 164, 64, t(I18N_CNT_REF), LVCOL_CARD, cb, CA_NEWREF);
+
+    auto vis = [](lv_obj_t *o, bool on) {
+        if (on) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+    };
+    auto showN = [&]() {
+        char b[8]; snprintf(b, sizeof b, "%u", (unsigned)kCountSamples[si]);
+        lv_label_set_text(nBox, b);
+    };
+    auto layout = [&]() {
+        bool ref = st == ST_REF;
+        vis(minusB, ref); vis(plusB, ref); vis(nBox, ref); vis(nCap, ref); vis(okB, ref);
+        vis(sameB, ref && saved > 0.0f);
+        vis(redoB, st == ST_CHECK); vis(goB, st == ST_CHECK);
+        vis(newB, st == ST_COUNT);
+        char b[48];
+        if (st == ST_COUNT) b[0] = '\0';
+        else snprintf(b, sizeof b, t(I18N_STEP_OF), (int)st + 1, 3);
+        lv_label_set_text(stepL, b);
+        if (st == ST_TRAY)       lv_label_set_text(instr, t(I18N_CNT_TRAY));
+        else if (st == ST_REF)   lv_label_set_text(instr, t(I18N_CNT_HINT));
+        else if (st == ST_CHECK) {
+            char c[160];
+            snprintf(c, sizeof c, t(I18N_CNT_CHECK), (unsigned)kCountSamples[si], (unsigned)(2 * kCountSamples[si]));
+            lv_label_set_text(instr, c);
+        } else                   lv_label_set_text(instr, t(I18N_CNT_POUR));
+        lv_obj_set_style_text_color(instr, st == ST_COUNT ? LVCOL_MUTED : LVCOL_ACCENT, 0);
+    };
+    showN();
+    layout();
+
+    lv_scr_load(scr);
+    lvglDrainPress(800);
+
+    uint32_t lastUi = 0;
+    float w = NAN;
+    for (;;) {
+        lv_timer_handler(); delay(5);
+        wifiKeepAlive();
+        toolSleepTick(true, w);
+
+        int a = sAct;
+        if (a == CA_BACK) break;
+        if (a != CA_NONE) sAct = CA_NONE;
+        bool relayout = true;
+        if (a == CA_TARE) {
+            lv_obj_add_state(tareBtn, LV_STATE_DISABLED);
+            lv_timer_handler();
+            toolTare();
+            lv_obj_clear_state(tareBtn, LV_STATE_DISABLED);
+            if (st == ST_TRAY) st = ST_REF;   // later steps: a re-zero, nothing more
+            lvglDrainPress(600);
+        } else if (a == CA_MINUS && si > 0) {
+            si--; showN();
+        } else if (a == CA_PLUS && si < NS - 1) {
+            si++; showN();
+        } else if (a == CA_OK && !isnan(w) && w > 0.05f) {
+            unit = w / kCountSamples[si];
+            lightRef = w < 10.0f;
+            st = ST_CHECK;
+            playBeeps(1800, 60, 1);
+        } else if (a == CA_SAME && saved > 0.0f) {
+            unit = saved; lightRef = false;
+            st = ST_COUNT;
+        } else if (a == CA_REDO || a == CA_NEWREF) {
+            st = ST_REF;
+        } else if (a == CA_GO) {
+            // Twice the reference for free: if the scale shows what it should,
+            // take the part weight again over all 2N parts.
+            const uint16_t n2 = 2 * kCountSamples[si];
+            if (!isnan(w) && unit > 0.0f && lroundf(w / unit) == n2) {
+                unit = w / n2;
+                lightRef = w < 10.0f;
+            }
+            saved = unit;
+            prefs.begin("config", false);
+            prefs.putFloat("cntUnit", unit);
+            prefs.putUChar("cntN", si);
+            prefs.end();
+            st = ST_COUNT;
+            playBeeps(2000, 80, 2);
+        } else {
+            relayout = false;
+        }
+        if (relayout && a != CA_NONE) layout();
+
+        if (millis() - lastUi < 150) continue;
+        lastUi = millis();
+        w = toolPreciseWeight();
+
+        char buf[64];
+        if (isnan(w)) {
+            toolSetText(big, "--");
+            lv_obj_set_style_text_color(big, LVCOL_RED, 0);
+            toolSetText(info, "");
+            continue;
+        }
+        if (st == ST_TRAY || st == ST_REF) {
+            snprintf(buf, sizeof buf, "%.1f g", w);
+            toolSetText(big, buf);
+            lv_obj_set_style_text_color(big, gIsStable ? LVCOL_TEXT : LVCOL_MUTED, 0);
+            if (st == ST_REF && saved > 0.0f) snprintf(buf, sizeof buf, "%.3f %s", saved, t(I18N_CNT_EACH));
+            else buf[0] = '\0';
+            toolSetText(info, buf);
+            lv_obj_set_style_text_color(info, LVCOL_MUTED, 0);
+        } else {
+            long n = lroundf(w / unit);
+            if (n < 0) n = 0;
+            snprintf(buf, sizeof buf, "%ld", n);
+            toolSetText(big, buf);
+            lv_color_t col = gIsStable ? LVCOL_TEXT : LVCOL_MUTED;
+            if (st == ST_CHECK && gIsStable)
+                col = n == 2 * kCountSamples[si] ? LVCOL_GREEN : LVCOL_ORANGE;
+            lv_obj_set_style_text_color(big, col, 0);
+            if (lightRef) {
+                toolSetText(info, t(I18N_CNT_LIGHT));
+                lv_obj_set_style_text_color(info, LVCOL_ORANGE, 0);
+            } else {
+                snprintf(buf, sizeof buf, "%s  ·  %.1f g  ·  %.3f %s", t(I18N_CNT_PCS), w, unit, t(I18N_CNT_EACH));
+                toolSetText(info, buf);
+                lv_obj_set_style_text_color(info, LVCOL_MUTED, 0);
+            }
+        }
+    }
+
+    lv_scr_load(backTo);
+    lv_obj_del(scr);
+    lvglDrainPress(800);
+}
+
+// ---------------------------------------------------------------------------
+// Resin mixing
+// ---------------------------------------------------------------------------
+// Two-part resin or epoxy by weight. Cup on (on the parcel-scale adapter),
+// TARE; pour A, "Go to B"; the screen then shows how much B the ratio asks for,
+// what is in, what is left, with a bar, a beep when it is reached and red when
+// it is over. The ratio is "100 : B" (B parts of hardener for 100 of resin), as
+// resin datasheets give it; it is kept in NVS (config/mixB).
+static void runResinMix(lv_obj_t *backTo) {
+    enum { MA_NONE, MA_BACK, MA_TARE, MA_MINUS, MA_PLUS, MA_NEXT };
+    static int sAct;
+    auto cb = [](lv_event_t *e) {
+        sAct = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    };
+    sAct = MA_NONE;
+
+    prefs.begin("config", true);
+    int ratioB = prefs.getUShort("mixB", 50);
+    prefs.end();
+    if (ratioB < 1 || ratioB > 400) ratioB = 50;
+    bool ratioDirty = false;
+
+    enum { PH_CUP, PH_A, PH_B } ph = PH_CUP;
+    float aGrams = 0.0f;
+    bool  beeped = false;
+
+    lv_obj_t *scr = lv_obj_create(nullptr);
+    lv_obj_set_style_bg_color(scr, LVCOL_BG, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lvglAddHeader(scr, t(I18N_TOOL_MIX), cb, nullptr, (intptr_t)MA_BACK);
+
+    // Ratio stepper, top.
+    lv_obj_t *rCap = lv_label_create(scr);
+    lv_label_set_text(rCap, t(I18N_MIX_RATIO));
+    lv_obj_set_style_text_font(rCap, &gFont14, 0);
+    lv_obj_set_style_text_color(rCap, LVCOL_MUTED, 0);
+    lv_obj_set_pos(rCap, 12, 64);
+    toolButton(scr, 216, 52, 48, 44, "-", LVCOL_CARD, cb, MA_MINUS, true);
+    lv_obj_t *rVal = lv_label_create(scr);
+    lv_obj_set_width(rVal, 140);
+    lv_obj_set_style_text_align(rVal, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(rVal, &gFont20, 0);
+    lv_obj_set_style_text_color(rVal, LVCOL_TEXT, 0);
+    lv_obj_set_pos(rVal, 268, 62);
+    toolButton(scr, 412, 52, 48, 44, "+", LVCOL_CARD, cb, MA_PLUS, true);
+
+    lv_obj_t *phase = toolLabel(scr, 106, &gFont16, LVCOL_ACCENT);
+    lv_obj_t *big   = toolLabel(scr, 128, &lv_font_montserrat_48, LVCOL_TEXT);
+    lv_obj_t *sub   = toolLabel(scr, 184, &gFont16, LVCOL_MUTED);
+
+    lv_obj_t *bar = lv_bar_create(scr);
+    lv_obj_set_size(bar, 440, 12);
+    lv_obj_set_pos(bar, 20, 216);
+    lv_bar_set_range(bar, 0, 1000);
+    lv_obj_set_style_bg_color(bar, LVCOL_CARD, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(0x3FC8E4), LV_PART_INDICATOR);
+
+    lv_obj_t *tareBtn = lvglAddTareButton(scr, 110, 64, cb, (intptr_t)MA_TARE);
+    lv_obj_set_pos(tareBtn, 8, 248);
+    lv_obj_t *nextBtn = toolButton(scr, 128, 248, 344, 64, t(I18N_MIX_NEXT), LVCOL_ACCENT, cb, MA_NEXT);
+    lv_obj_t *nextLbl = lv_obj_get_child(nextBtn, 0);
+
+    auto showRatio = [&]() {
+        char b[16]; snprintf(b, sizeof b, "100 : %d", ratioB);
+        lv_label_set_text(rVal, b);
+    };
+    showRatio();
+
+    lv_scr_load(scr);
+    lvglDrainPress(800);
+
+    uint32_t lastUi = 0;
+    float w = NAN;
+    for (;;) {
+        lv_timer_handler(); delay(5);
+        wifiKeepAlive();
+        toolSleepTick(true, w);
+
+        int a = sAct;
+        if (a == MA_BACK) break;          // read before it is cleared, or Back is lost
+        if (a != MA_NONE) sAct = MA_NONE;
+        if (a == MA_TARE) {
+            lv_obj_add_state(tareBtn, LV_STATE_DISABLED);
+            lv_timer_handler();
+            toolTare();
+            lv_obj_clear_state(tareBtn, LV_STATE_DISABLED);
+            ph = PH_A; aGrams = 0.0f; beeped = false;
+            lvglDrainPress(600);
+        } else if (a == MA_MINUS && ratioB > 1) {
+            ratioB--; ratioDirty = true; showRatio();
+        } else if (a == MA_PLUS && ratioB < 400) {
+            ratioB++; ratioDirty = true; showRatio();
+        } else if (a == MA_NEXT) {
+            if (ph == PH_A && !isnan(w) && w > 0.5f) {
+                aGrams = w; ph = PH_B; beeped = false;
+                playBeeps(1800, 60, 1);
+            } else if (ph == PH_B) {
+                ph = PH_CUP;          // Start over: a new cup needs a new TARE
+            }
+        }
+
+        if (millis() - lastUi < 150) continue;
+        lastUi = millis();
+        w = toolPreciseWeight();
+
+        char buf[64];
+        if (ph != PH_B) {             // colours a finished B phase may have left
+            lv_obj_set_style_text_color(sub, LVCOL_MUTED, 0);
+            lv_obj_set_style_bg_color(bar, lv_color_hex(0x3FC8E4), LV_PART_INDICATOR);
+        }
+        if (ph == PH_CUP) {
+            toolSetText(phase, t(I18N_MIX_CUP));
+            lv_obj_set_style_text_color(phase, LVCOL_ACCENT, 0);
+            snprintf(buf, sizeof buf, isnan(w) ? "-- g" : "%.1f g", w);
+            toolSetText(big, buf);
+            lv_obj_set_style_text_color(big, LVCOL_MUTED, 0);
+            toolSetText(sub, "");
+            lv_bar_set_value(bar, 0, LV_ANIM_OFF);
+            toolSetText(nextLbl, t(I18N_MIX_NEXT));
+            lv_obj_set_style_text_color(nextLbl, LVCOL_FAINT, 0);
+        } else if (ph == PH_A) {
+            toolSetText(phase, t(I18N_MIX_POUR_A));
+            lv_obj_set_style_text_color(phase, LVCOL_ACCENT, 0);
+            snprintf(buf, sizeof buf, isnan(w) ? "-- g" : "%.1f g", w);
+            toolSetText(big, buf);
+            lv_obj_set_style_text_color(big, gIsStable ? LVCOL_TEXT : LVCOL_MUTED, 0);
+            if (!isnan(w) && w > 0.5f)
+                snprintf(buf, sizeof buf, "B : %.1f g", w * ratioB / 100.0f);
+            else buf[0] = '\0';
+            toolSetText(sub, buf);
+            lv_bar_set_value(bar, 0, LV_ANIM_OFF);
+            toolSetText(nextLbl, t(I18N_MIX_NEXT));
+            lv_obj_set_style_text_color(nextLbl, (!isnan(w) && w > 0.5f) ? LVCOL_TEXT : LVCOL_FAINT, 0);
+        } else {
+            const float target = aGrams * ratioB / 100.0f;
+            const float b = isnan(w) ? NAN : w - aGrams;
+            // Reached within 2 %, or 0.3 g for a small batch.
+            float tol = target * 0.02f; if (tol < 0.3f) tol = 0.3f;
+            toolSetText(phase, t(I18N_MIX_POUR_B));
+            if (isnan(b)) {
+                toolSetText(big, "-- g");
+                toolSetText(sub, "");
+            } else {
+                snprintf(buf, sizeof buf, "%.1f / %.1f g", b < 0 ? 0.0f : b, target);
+                toolSetText(big, buf);
+                int32_t v = target > 0 ? (int32_t)(b * 1000.0f / target) : 0;
+                lv_bar_set_value(bar, v < 0 ? 0 : (v > 1000 ? 1000 : v), LV_ANIM_OFF);
+                lv_color_t col;
+                if (b > target + tol) {
+                    snprintf(buf, sizeof buf, "%s : +%.1f g", t(I18N_MIX_OVER), b - target);
+                    col = LVCOL_RED;
+                } else if (b >= target - tol) {
+                    snprintf(buf, sizeof buf, "%s", t(I18N_MIX_DONE));
+                    col = LVCOL_GREEN;
+                    if (!beeped) { playBeeps(2000, 80, 2); beeped = true; }
+                } else {
+                    snprintf(buf, sizeof buf, "%s : %.1f g", t(I18N_MIX_LEFT), target - b);
+                    col = LVCOL_TEXT;
+                    beeped = false;
+                }
+                toolSetText(sub, buf);
+                lv_obj_set_style_text_color(sub, col, 0);
+                lv_obj_set_style_text_color(big, col, 0);
+                lv_obj_set_style_text_color(phase, col.full == LVCOL_TEXT.full ? LVCOL_ACCENT : col, 0);
+                lv_obj_set_style_bg_color(bar, b > target + tol ? LVCOL_RED
+                                              : (b >= target - tol ? LVCOL_GREEN : lv_color_hex(0x3FC8E4)),
+                                          LV_PART_INDICATOR);
+            }
+            toolSetText(nextLbl, t(I18N_MIX_RESTART));
+            lv_obj_set_style_text_color(nextLbl, LVCOL_TEXT, 0);
+        }
+    }
+
+    if (ratioDirty) {
+        prefs.begin("config", false);
+        prefs.putUShort("mixB", (uint16_t)ratioB);
+        prefs.end();
+    }
+    lv_scr_load(backTo);
+    lv_obj_del(scr);
+    lvglDrainPress(800);
+}
+
 // Parcel scale: the live weight in grams, big, and a TARE button. No tag, no
 // account, no network -- it only reads the scale. readWeight() is the same
 // filtered reading the weigh screen shows, so both modes agree on a weight.
@@ -9118,6 +9575,8 @@ static const LauncherTool kLauncherTools[] = {
     { "parcel",     nullptr,       I18N_TOOL_PARCEL,  I18N_TOOL_PARCEL_SUB,     LV_SYMBOL_DOWNLOAD, 0xE8821E, runParcelScale },
     { "caltest",    nullptr,       I18N_TOOL_CALTEST, I18N_TOOL_CALTEST_SUB,    LV_SYMBOL_SETTINGS, 0x3BA55D, runLoadCellTest },
     { "presse",     nullptr,       I18N_TOOL_PRESSE,  I18N_TOOL_PRESSE_SUB,     LV_SYMBOL_CHARGE,   0xE24B4A, runPresseMemo },
+    { "count",      nullptr,       I18N_TOOL_COUNT,   I18N_TOOL_COUNT_SUB,      LV_SYMBOL_LIST,     0x9B59B6, runPartsCounter },
+    { "mix",        nullptr,       I18N_TOOL_MIX,     I18N_TOOL_MIX_SUB,        LV_SYMBOL_SHUFFLE,  0x1ABC9C, runResinMix },
 };
 static const int kLauncherToolCount = sizeof(kLauncherTools) / sizeof(kLauncherTools[0]);
 static_assert(sizeof(kLauncherTools) / sizeof(kLauncherTools[0]) <= 32, "the tool masks are 32 bits");

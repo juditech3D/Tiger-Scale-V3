@@ -14,6 +14,11 @@ scaffold's placeholder text.
 
 Nothing yet.
 
+## [v3.13.0-mt.5](docs/release-notes/v3.13.0-mt.5.md)
+
+Two start-menu tools: a step-by-step parts counter and resin mixing (two-part
+resin or epoxy by weight).
+
 ## [v3.13.0-mt.4](docs/release-notes/v3.13.0-mt.4.md)
 
 The update notification from the start menu and the tools, with a Skip answer;

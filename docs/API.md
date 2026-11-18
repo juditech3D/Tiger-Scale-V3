@@ -235,7 +235,7 @@ The list behind the start menu's heat press memo tool, kept in LittleFS as
 Which tools the start menu shows, and in which order. Tiger Scale is always shown and always
 first; a hidden tool is still in the firmware and comes back the moment it is shown again. Kept
 in NVS (`config`/`toolsOff`, `config`/`toolsOrder`, both lists of tool ids). Ids: `tigerscale`,
-`pod`, `parcel`, `caltest`, `presse`.
+`pod`, `parcel`, `caltest`, `presse`, `count`, `mix`.
 
 | Endpoint | Body | Effect |
 |---|---|---|

@@ -62,6 +62,32 @@ window.TOOLS = [
       fr: 'Températures et temps de la presse à chaud par produit, avec minuteur et alarme. La liste se modifie depuis un navigateur.',
       en: 'Heat press temperatures and times per product, with a timer and alarm. The list is edited from a browser.'
     }
+  },
+  {
+    id: 'count', color: '#9b59b6', icon: 'count',
+    needs: {
+      url: '',
+      fr: 'Nécessite un bac de comptage posé sur la balance, à imprimer séparément.',
+      en: 'Needs a counting tray on the scale, printed separately.'
+    },
+    name: { fr: 'Comptage de pièces', en: 'Parts counter' },
+    desc: {
+      fr: 'Pose le bac et fais la tare, prends une référence (1 à 100 pièces), puis verse : la balance compte les pièces identiques par leur poids.',
+      en: 'Put the tray on and tare, take a reference (1 to 100 parts), then pour: the scale counts identical parts by their weight.'
+    }
+  },
+  {
+    id: 'mix', color: '#1abc9c', icon: 'mix',
+    needs: {
+      url: '',
+      fr: 'Le gobelet se pose sur l’accessoire pèse-colis, à imprimer séparément.',
+      en: 'The cup sits on the parcel-scale accessory, printed separately.'
+    },
+    name: { fr: 'Dosage résine', en: 'Resin mixing' },
+    desc: {
+      fr: 'Résine ou époxy en deux parties, au gramme : règle le rapport (100 : 45…), verse A, puis la balance dit combien de B ajouter, avec une barre et un bip.',
+      en: 'Two-part resin or epoxy, to the gram: set the ratio (100 : 45…), pour A, then the scale tells how much B to add, with a bar and a beep.'
+    }
   }
 ];
 
@@ -71,5 +97,7 @@ window.TOOL_ICONS = {
   chip:  '<rect x="6.5" y="6.5" width="11" height="11" rx="2"/><path d="M9.5 3v3.5M14.5 3v3.5M9.5 17.5V21M14.5 17.5V21M3 9.5h3.5M3 14.5h3.5M17.5 9.5H21M17.5 14.5H21"/>',
   box:   '<path d="M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9"/>',
   gauge: '<path d="M4.5 17a8.5 8.5 0 1 1 15 0"/><path d="M12 13.5 15.5 9"/><circle cx="12" cy="14" r="1.2"/>',
-  press: '<path d="M5 4h14v4H5z"/><path d="M12 8v5"/><path d="M4 18h16v2.5H4z"/><path d="M8 13h8l1 5H7z"/>'
+  press: '<path d="M5 4h14v4H5z"/><path d="M12 8v5"/><path d="M4 18h16v2.5H4z"/><path d="M8 13h8l1 5H7z"/>',
+  count: '<path d="M4 9h16l-1.5 10.5h-13z"/><circle cx="9" cy="6" r="1.6"/><circle cx="14.5" cy="5" r="1.6"/><path d="M10 13h4M12 11v4"/>',
+  mix:   '<path d="M6 4h5l-1 15H7z"/><path d="M13 4h5l-1 15h-3z"/><path d="M6.5 10h4M13.5 12h4"/>'
 };

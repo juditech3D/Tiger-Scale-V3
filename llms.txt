@@ -16,7 +16,8 @@ MIT licensed.
 
 This repository is Tiger Multi-tools, an unofficial fork of the TigerTag Project's
 firmware (https://github.com/TigerTag-Project/Tiger-Scale-V3): the same scale plus a
-start menu of tools (TigerPOD, parcel scale, calibration & test, heat press memo)
+start menu of tools (TigerPOD, parcel scale, calibration & test, heat press memo,
+parts counter, resin mixing)
 that the owner shows, hides and orders. It publishes its own builds and takes its
 over-the-air updates from its own Pages. Repository:
 https://github.com/juditech3D/Tiger-Scale-V3
@@ -110,7 +111,7 @@ than checking.
 
 ---
 
-_This summary was reviewed against firmware v3.13.0-mt.4._ It is re-read and re-affirmed
+_This summary was reviewed against firmware v3.13.0-mt.5._ It is re-read and re-affirmed
 at every version bump rather than left to age: the facts below describe a specific
 build, and the one that cost this project a session — which build environment is
 the right one — is exactly the kind that changes between releases.
