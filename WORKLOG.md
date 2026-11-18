@@ -17,3 +17,10 @@ Reset this file to the header above at each checkpoint. Nothing is lost: the raw
 log lives in git history and the synthesised entry lives in the changelog.
 
 ---
+
+### Added
+
+- Installer page: an "Also on the scale" section (sleep everywhere, RFID
+  sensitivity, updates announced) between the tools and the install steps, and
+  the copyright line in the footer (fork, and the original firmware's MIT
+  notice). `web-installer/index.html`.

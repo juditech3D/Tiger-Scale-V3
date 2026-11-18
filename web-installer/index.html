@@ -156,6 +156,8 @@
   .serial-warn { display:none; }
   .no-serial .serial-warn { display:block; }
 
+  .card .ic.feat { background:rgba(255,122,24,.14); color:var(--accent); }
+  footer .copy { margin-top:14px; }
   footer { margin-top:56px; padding-top:22px; border-top:1px solid var(--line); color:var(--faint); font-size:14px; }
   footer p { margin:0 0 8px; }
 
@@ -198,6 +200,16 @@
       <h2 data-t="tools_t"></h2>
       <p class="sub" data-t="tools_p"></p>
       <div class="grid" id="cards"></div>
+    </section>
+
+    <section id="more">
+      <h2 data-t="more_t"></h2>
+      <p class="sub" data-t="more_p"></p>
+      <div class="grid">
+        <div class="card"><div class="ic feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg></div><h3 data-t="f_sleep_t"></h3><p data-t="f_sleep_p"></p></div>
+        <div class="card"><div class="ic feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12a7 7 0 0 1 2-5M19 12a7 7 0 0 0-2-5M8.5 12a3.5 3.5 0 0 1 1-2.5M15.5 12a3.5 3.5 0 0 0-1-2.5"/><circle cx="12" cy="12" r="1.2"/><path d="M12 13.5V20"/></svg></div><h3 data-t="f_rfid_t"></h3><p data-t="f_rfid_p"></p></div>
+        <div class="card"><div class="ic feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg></div><h3 data-t="f_ota_t"></h3><p data-t="f_ota_p"></p></div>
+      </div>
     </section>
 
     <section id="install">
@@ -249,6 +261,7 @@
   <footer>
     <p><span data-t="foot_1"></span> <a id="official-site"></a></p>
     <p><span data-t="foot_2"></span> <a id="source">GitHub</a> · <span data-t="foot_3"></span></p>
+    <p class="copy">© 2026 Juditech3D · <span data-product></span>. <span data-t="foot_copy"></span></p>
   </footer>
 </div>
 
@@ -297,7 +310,16 @@
       theme_dark: 'Sombre', theme_light: 'Clair',
       foot_1: 'Pour fabriquer la balance (pièces, câblage, boîtier), suis le guide du projet officiel :',
       foot_2: 'Code source de ce fork :',
-      foot_3: 'TigerTag et TigerScale sont des marques du TigerTag Project.'
+      foot_3: 'TigerTag et TigerScale sont des marques du TigerTag Project.',
+      foot_copy: 'D\'après le firmware TigerScale V3, © 2026 TigerTag Project, sous licence MIT.',
+      more_t: 'Et aussi sur la balance',
+      more_p: 'Des améliorations qui valent pour tout le firmware, pas pour un seul outil.',
+      f_sleep_t: 'Veille partout',
+      f_sleep_p: 'L\'écran s\'éteint après le délai réglé, dans le menu et dans chaque outil, pour éviter le marquage. L\'outil continue de tourner, et le premier toucher ne fait que rallumer. Le pèse-colis se réveille aussi quand le poids bouge, TigerPOD quand on pose une puce, et le mémo presse ne s\'éteint jamais pendant un minuteur.',
+      f_rfid_t: 'Sensibilité RFID',
+      f_rfid_p: 'Pour les puces difficiles à lire (petites, ou loin dans le moyeu), Réglages → RFID règle la sensibilité de réception de 33 à 48 dB, à côté de la puissance. Le calibrage Auto choisit les deux tout seul.',
+      f_ota_t: 'Mises à jour annoncées',
+      f_ota_p: 'Quand une nouvelle version sort, la balance la propose à l\'écran, depuis le menu comme depuis la pesée : Oui, Plus tard (dans 24 h) ou Ignorer cette version. Plus besoin d\'aller voir dans les réglages.'
     },
     en: {
       hero_t: 'Your scale, with the tools you want.',
@@ -337,7 +359,16 @@
       theme_dark: 'Dark', theme_light: 'Light',
       foot_1: 'To build the scale (parts, wiring, case), follow the official project\'s guide:',
       foot_2: 'Source code of this fork:',
-      foot_3: 'TigerTag and TigerScale are trademarks of the TigerTag Project.'
+      foot_3: 'TigerTag and TigerScale are trademarks of the TigerTag Project.',
+      foot_copy: 'Based on the TigerScale V3 firmware, © 2026 TigerTag Project, MIT licence.',
+      more_t: 'Also on the scale',
+      more_p: 'Improvements that apply to the whole firmware, not to a single tool.',
+      f_sleep_t: 'Sleep everywhere',
+      f_sleep_p: 'The screen turns off after the set delay, in the start menu and in every tool, to avoid burn-in. The tool keeps running, and the first touch only wakes the screen. Parcel scale also wakes when the weight moves, TigerPOD when a chip is put down, and the heat press memo never sleeps while a timer runs.',
+      f_rfid_t: 'RFID sensitivity',
+      f_rfid_p: 'For chips that are hard to read (small, or deep in the hub), Settings → RFID sets the receive sensitivity from 33 to 48 dB, beside the power level. Auto calibration picks both for you.',
+      f_ota_t: 'Updates announced',
+      f_ota_p: 'When a new version is out, the scale offers it on screen, from the start menu as from the weigh screen: Yes, Later (in 24 h) or Skip this version. No need to look in the settings.'
     }
   };
 
