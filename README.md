@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <a href="https://tigertag-project.github.io/Tiger-Scale-V3/">
+  <a href="https://juditech3d.github.io/Tiger-Scale-V3/">
     <img src="assets/install-button.svg" alt="Install TigerScale from your browser" width="420">
   </a>
 </p>
@@ -66,9 +66,10 @@ left. MIT licensed, built with PlatformIO.
 
 **Tiger Multi-tools** is based on the official [TigerScale V3](https://github.com/TigerTag-Project/Tiger-Scale-V3)
 firmware **v3.13.0**; its versions read `3.13.0-mt.N`. Everything else in this README describes the
-official firmware, and the install button above installs the **official** one. This firmware installs from
-its own page, <https://juditech3d.github.io/Tiger-Scale-V3/> (answer no to the erase prompt to keep your
-settings), and updates over the air from the same place. Releases:
+official firmware. The install button above installs **this** firmware, from its own page
+<https://juditech3d.github.io/Tiger-Scale-V3/> (answer no to the erase prompt to keep your settings), and
+the scale then updates over the air from the same place. The official firmware installs from
+<https://tigertag-project.github.io/Tiger-Scale-V3/>. Releases:
 [github.com/juditech3D/Tiger-Scale-V3/releases](https://github.com/juditech3D/Tiger-Scale-V3/releases).
 
 > [!IMPORTANT]
@@ -187,7 +188,7 @@ identifies itself. From then on the scale updates itself over the air.
 ### Or build it yourself
 
 ```bash
-git clone https://github.com/TigerTag-Project/Tiger-Scale-V3.git
+git clone https://github.com/juditech3D/Tiger-Scale-V3.git
 cd Tiger-Scale-V3
 
 bash scripts/flash.sh --fs --monitor
