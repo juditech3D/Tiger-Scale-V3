@@ -1,3 +1,6 @@
+> [!WARNING]
+> **Unofficial alternative firmware.** This is a personal, community-made firmware for the TigerScale. It is neither published, maintained nor supported by the TigerTag Project, and flashing it is done at your own risk.
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)"  srcset="assets/logo-tigertag-head-dark.svg">
@@ -56,6 +59,48 @@ left. MIT licensed, built with PlatformIO.
 
 > [!WARNING]
 > **TigerScale V3 is different from [TigerPOD](https://github.com/TigerTag-Project/TigerPOD).** They don't offer the same features.
+
+---
+
+## What this firmware adds or changes
+
+**Tiger Multi-tools** is based on the official [TigerScale V3](https://github.com/TigerTag-Project/Tiger-Scale-V3)
+firmware **v3.13.0**; its versions read `3.13.0-mt.N`. Everything else in this README describes the
+official firmware, and the install button above installs the **official** one. This firmware installs from
+its own page, <https://juditech3d.github.io/Tiger-Scale-V3/> (answer no to the erase prompt to keep your
+settings), and updates over the air from the same place. Releases:
+[github.com/juditech3D/Tiger-Scale-V3/releases](https://github.com/juditech3D/Tiger-Scale-V3/releases).
+
+> [!IMPORTANT]
+> Tested on the Waveshare ESP32-S3-Touch-LCD-**3.5** (without B) only, **not yet on the 3.5B**.
+
+### Added
+
+- **A start menu of tools.** The scale boots on a list of tools instead of going straight to weighing:
+  - **Tiger Scale**: spool weighing, unchanged
+  - **TigerPOD**: the scale's two readers serve Tiger Studio over the network (needs the
+    [Studio fork](https://github.com/juditech3D/TigerTag-Studio-Manager)), for TigerTag and Bambu Lab chips
+  - **Parcel scale**: live weight with tare, no account and no network
+  - **Parts counter**: step-by-step wizard with reference parts, unit weight remembered
+  - **Resin mixing**: two-part resin or epoxy by weight (ratio 100 : B), progress bar and beeps at the
+    right amount
+  - **Calibration & test**: raw load-cell readings, wiring diagnosis, calibration wizard
+  - **Heat press memo**: temperatures and times per product, timer with alarm, editor in the browser
+- **Your menu, your order**: the eye button hides, shows and reorders the tools.
+- **Screen sleep in every tool**, never in the middle of a weighing.
+- **RFID sensitivity** (receive gain, 33 to 48 dB) beside the power level in Settings > RFID, also chosen
+  by the Auto calibration.
+- **Update notification** in the start menu, with *Skip this version*.
+- **A click on the speaker** when a button is touched (follows mute and volume).
+
+### Fixed
+
+- The speaker of the **3.5 (without B)** makes sound: its amplifier was never switched on.
+- The scale **reconnects to Wi-Fi on its own** after a drop.
+
+### In progress
+
+- Publishing the counting tray and the parcel-scale adapter.
 
 ---
 
