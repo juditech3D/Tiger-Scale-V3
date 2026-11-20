@@ -15,34 +15,34 @@
 //
 //   TABLE OF CONTENTS                                     line range
 //   ---------------------------------------------------- -----------
-//   HARDWARE CONFIGURATION                                 266-  459
-//   OTA CONFIGURATION                                      460-  496
-//   FORWARD DECLARATIONS                                   497-  807
-//   WEIGHT ROUNDING                                        808-  840
-//   GLOBAL OBJECTS                                         841- 1841
-//   CONFIGURATION VARIABLES                               1842- 2275
-//   OLED DISPLAY                                          2276- 3059
-//   CLOUD PARSING                                         3060- 3074
-//   WIFI SETUP                                            3075-10748
-//   LITTLEFS                                             10749-11048
-//   FIREBASE AUTHENTICATION                              11049-12731
-//   WEBSOCKET                                            12732-12758
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12759-12893
-//   UNIFIED WS FRAME BUILDER                             12894-13018
-//   WEIGHT FILTER HELPERS                                13019-13033
-//   POST-SEND STATE RESET (shared by all send paths)     13034-13054
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13055-13158
-//   WEB SERVER                                           13159-14287
-//   CLOUD COMMUNICATION                                  14288-14470
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14471-14978
-//   mDNS                                                 14979-15016
-//   SCALE                                                15017-15187
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15188-15320
-//   RFID                                                 15321-16403
-//   OTA — Over-the-air firmware + filesystem update    16404-17083
-//   LVGL bridge + main weigh screen                      17084-18047
-//   Remote live view: the screen out, taps back in       18048-18897
-//   SETUP & LOOP                                         18898-20174
+//   HARDWARE CONFIGURATION                                 267-  460
+//   OTA CONFIGURATION                                      461-  497
+//   FORWARD DECLARATIONS                                   498-  808
+//   WEIGHT ROUNDING                                        809-  841
+//   GLOBAL OBJECTS                                         842- 1891
+//   CONFIGURATION VARIABLES                               1892- 2325
+//   OLED DISPLAY                                          2326- 3109
+//   CLOUD PARSING                                         3110- 3124
+//   WIFI SETUP                                            3125-10873
+//   LITTLEFS                                             10874-11173
+//   FIREBASE AUTHENTICATION                              11174-12856
+//   WEBSOCKET                                            12857-12883
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12884-13018
+//   UNIFIED WS FRAME BUILDER                             13019-13143
+//   WEIGHT FILTER HELPERS                                13144-13158
+//   POST-SEND STATE RESET (shared by all send paths)     13159-13179
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13180-13283
+//   WEB SERVER                                           13284-14412
+//   CLOUD COMMUNICATION                                  14413-14595
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14596-15103
+//   mDNS                                                 15104-15141
+//   SCALE                                                15142-15312
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15313-15445
+//   RFID                                                 15446-16528
+//   OTA — Over-the-air firmware + filesystem update    16529-17208
+//   LVGL bridge + main weigh screen                      17209-18172
+//   Remote live view: the screen out, taps back in       18173-19022
+//   SETUP & LOOP                                         19023-20299
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -100,6 +100,7 @@ enum OledState : uint8_t {
 #include <Update.h>
 #include <esp_ota_ops.h>       // esp_ota_get_next_update_partition() — see otaFirmwareSlotAvailable()
 #include <mbedtls/sha256.h>
+#include <mbedtls/md.h>        // HMAC-SHA256 for the Bambu Lab chip keys (§9 TigerPOD)
 #include <map>
 #include <math.h>
 
@@ -1512,6 +1513,25 @@ public:
         return _pn532.ntag2xx_WritePage(page, d) != 0;
     }
 
+    // MIFARE Classic, for the Bambu Lab chips the TigerPOD tool reads (§9):
+    // key A authentication of `block`'s sector against the card selected by the
+    // last isNewCardPresent(), then one 16-byte block of that sector. A failed
+    // authentication halts the card; it answers again once its field has been
+    // cycled.
+    bool mifareAuthA(uint8_t block, const uint8_t *key6) {
+        uint8_t k[6]; memcpy(k, key6, 6);
+        flushPn532Rx(&_serial);
+        bool ok = _pn532.mifareclassic_AuthenticateBlock(uid.uidByte, uid.size, block, 0, k) != 0;
+        flushPn532Rx(&_serial);
+        return ok;
+    }
+    bool readMifareBlock(uint8_t block, uint8_t *out16) {
+        flushPn532Rx(&_serial);
+        bool ok = _pn532.mifareclassic_ReadDataBlock(block, out16) != 0;
+        flushPn532Rx(&_serial);
+        return ok;
+    }
+
 private:
     Adafruit_PN532 _pn532;
     HardwareSerial &_serial;
@@ -1669,6 +1689,21 @@ public:
         return _pn532.ntag2xx_WritePage(page, d) != 0;
     }
 
+    // MIFARE Classic, for the Bambu Lab chips the TigerPOD tool reads (§9):
+    // key A authentication of `block`'s sector against the card selected by the
+    // last isNewCardPresent(), then one 16-byte block of that sector. A failed
+    // authentication halts the card; it answers again once its field has been
+    // cycled.
+    bool mifareAuthA(uint8_t block, const uint8_t *key6) {
+        uint8_t k[6]; memcpy(k, key6, 6);
+        bool ok = _pn532.mifareclassic_AuthenticateBlock(uid.uidByte, uid.size, block, 0, k) != 0;
+        return ok;
+    }
+    bool readMifareBlock(uint8_t block, uint8_t *out16) {
+        bool ok = _pn532.mifareclassic_ReadDataBlock(block, out16) != 0;
+        return ok;
+    }
+
 private:
     Adafruit_PN532 _pn532;
     bool _isPrimary;
@@ -1817,6 +1852,21 @@ public:
     bool writePage(uint8_t page, const uint8_t *data4) {
         uint8_t d[4]; memcpy(d, data4, 4);
         return _pn532.ntag2xx_WritePage(page, d) != 0;
+    }
+
+    // MIFARE Classic, for the Bambu Lab chips the TigerPOD tool reads (§9):
+    // key A authentication of `block`'s sector against the card selected by the
+    // last isNewCardPresent(), then one 16-byte block of that sector. A failed
+    // authentication halts the card; it answers again once its field has been
+    // cycled.
+    bool mifareAuthA(uint8_t block, const uint8_t *key6) {
+        uint8_t k[6]; memcpy(k, key6, 6);
+        bool ok = _pn532.mifareclassic_AuthenticateBlock(uid.uidByte, uid.size, block, 0, k) != 0;
+        return ok;
+    }
+    bool readMifareBlock(uint8_t block, uint8_t *out16) {
+        bool ok = _pn532.mifareclassic_ReadDataBlock(block, out16) != 0;
+        return ok;
     }
 
 private:
@@ -9143,7 +9193,8 @@ static void runPresseMemo(lv_obj_t *backTo) {
 //   ws://<scale>/pod?c=<LAN access code>
 //   scale  -> Studio  {"type":"reader-connected","reader":"1"}
 //                     {"type":"card","reader":"1","uid":"04A1..","atr":"3b8f..",
-//                      "rawPagesHex":"<pages 4-39>"|null}
+//                      "rawPagesHex":"<pages 4-39>"|null,
+//                      "bambuBlocksHex":{"0":"<16 bytes>",..}}   <- Bambu Lab chips only
 //                     {"type":"card-removed","reader":"1"}
 //                     {"type":"read-result","id":7,"ok":true,"rawPagesHex":".."}
 //                     {"type":"write-result","id":8,"ok":true,"pagesWritten":12,
@@ -9226,6 +9277,36 @@ static const char *podAtr(uint8_t uidLen) {
                        : "3b8f8001804f0ca000000306030001000000006a";
 }
 
+// Bambu Lab chips: a MIFARE Classic 1K per flange, each sector locked with its
+// own key A derived from the 4-byte UID -- HKDF-SHA256 (RFC 5869), public salt,
+// info "RFID-A\0", 16 keys of 6 bytes, one per sector. Method from the Bambu
+// Research Group's RFID-Tag-Guide; the same derivation as Studio's
+// services/bambu-tag.js, checked against it byte for byte. The scale only
+// reads these chips and sends the raw blocks: Studio decodes them.
+static bool bambuKeysA(const uint8_t *uid4, uint8_t keys[16][6]) {
+    static const uint8_t SALT[16] = { 0x9a, 0x75, 0x9c, 0xf2, 0xc4, 0xf7, 0xca, 0xff,
+                                      0x22, 0x2c, 0xb9, 0x76, 0x9b, 0x41, 0xbc, 0x96 };
+    static const uint8_t INFO[7] = { 'R', 'F', 'I', 'D', '-', 'A', 0 };
+    const mbedtls_md_info_t *md = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+    if (!md) return false;
+    uint8_t prk[32];                                     // extract
+    if (mbedtls_md_hmac(md, SALT, sizeof SALT, uid4, 4, prk)) return false;
+    uint8_t *okm = &keys[0][0];                          // expand to 96 bytes
+    uint8_t t[32]; size_t tLen = 0, done = 0;
+    for (uint8_t i = 1; done < 16 * 6; i++) {
+        uint8_t in[32 + sizeof INFO + 1];
+        memcpy(in, t, tLen);
+        memcpy(in + tLen, INFO, sizeof INFO);
+        in[tLen + sizeof INFO] = i;
+        if (mbedtls_md_hmac(md, prk, sizeof prk, in, tLen + sizeof INFO + 1, t)) return false;
+        tLen = sizeof t;
+        size_t n = min(sizeof t, (size_t)(16 * 6) - done);
+        memcpy(okm + done, t, n);
+        done += n;
+    }
+    return true;
+}
+
 // Selects the chip again (a poll of the other reader may have come between)
 // and checks it is still the one Studio was told about.
 static bool podSelect(PodReader &p) {
@@ -9235,6 +9316,46 @@ static bool podSelect(PodReader &p) {
         delay(20);
     }
     return false;
+}
+
+// Sectors 0-4 hold every field Studio decodes (services/bambu-tag.js).
+#define POD_BAMBU_SECTORS 5
+
+// The data blocks of a Bambu Lab chip as the JSON object Studio's reader
+// process sends ({"<block>":"<32 hex>",..}), or "" when sector 0 does not open
+// with the derived key -- not a Bambu chip (a Creality one, a blank MIFARE).
+// A later sector that fails keeps what was read before it, as Studio does.
+//
+// A failed authentication halts the card, and the weaker reader does miss a
+// command now and then, so each sector gets a second chance: the field is
+// cycled, which wakes the card, and the card is selected again.
+static String podReadBambu(PodReader &p) {
+    if (p.uidLen != 4) return "";
+    uint8_t keys[16][6];
+    if (!bambuKeysA(p.uid, keys)) return "";
+    String out;
+    uint8_t blk[16];
+    for (uint8_t sector = 0; sector < POD_BAMBU_SECTORS; sector++) {
+        const uint8_t first = sector * 4;
+        bool ok = false;
+        String got;
+        for (int attempt = 0; attempt < 2 && !ok; attempt++) {
+            if (attempt) {
+                p.r->antennaOff(); delay(5); p.r->antennaOn(); delay(6);
+                if (!podSelect(p)) break;
+            }
+            got = "";
+            ok = p.r->mifareAuthA(first, keys[sector]);
+            for (uint8_t b = first; ok && b < first + 3; b++) {
+                ok = p.r->readMifareBlock(b, blk);
+                if (ok) got += String(",\"") + b + "\":\"" + podHex(blk, 16) + "\"";
+            }
+        }
+        if (sector == 0 && !ok) return "";
+        out += got;
+        if (!ok) break;
+    }
+    return "{" + out.substring(1) + "}";
 }
 
 // `length` bytes from `startPage`, read 16 bytes (4 pages) at a time.
@@ -9389,8 +9510,9 @@ static void runTigerPod(lv_obj_t *backTo) {
     auto cardMsg = [&](PodReader &p) -> String {
         String m = String("{\"type\":\"card\",\"reader\":\"") + p.id + "\",\"uid\":\""
                  + podHex(p.uid, p.uidLen) + "\",\"atr\":\"" + podAtr(p.uidLen) + "\",\"rawPagesHex\":";
-        m += p.pagesHex.length() ? "\"" + p.pagesHex + "\"}" : String("null}");
-        return m;
+        m += p.pagesHex.length() ? "\"" + p.pagesHex + "\"" : String("null");
+        if (p.bambuHex.length()) m += ",\"bambuBlocksHex\":" + p.bambuHex;
+        return m + "}";
     };
 
     gPodOpen = true;
@@ -9529,10 +9651,13 @@ static void runTigerPod(lv_obj_t *backTo) {
             p.present = true;
             p.misses = 0;
             p.pagesHex = "";
+            p.bambuHex = "";
             uint8_t pg[144];
             // A MIFARE Classic answers no Ultralight READ: it goes out without
-            // pages, which is what tells Studio it is a maker's chip.
+            // pages, which is what tells Studio it is a maker's chip -- with its
+            // blocks when it is a Bambu Lab one.
             if (p.uidLen == 7 && podReadPages(p, 4, 144, pg)) p.pagesHex = podHex(pg, 144);
+            if (p.uidLen == 4) p.bambuHex = podReadBambu(p);
             podWs.textAll(cardMsg(p));
             playBeeps(1760, 40, 1);
             showReader(&p - readers);
