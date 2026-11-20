@@ -42,7 +42,7 @@
 //   OTA — Over-the-air firmware + filesystem update    16529-17208
 //   LVGL bridge + main weigh screen                      17209-18172
 //   Remote live view: the screen out, taps back in       18173-19022
-//   SETUP & LOOP                                         19023-20299
+//   SETUP & LOOP                                         19023-20311
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -20208,7 +20208,19 @@ void loop() {
             currentOledState = OLED_STATE_IDLE;
         }
 
-        // Screensaver: activates after 5 minutes of inactivity
+        // Screensaver: activates after gSleepDelayMin of inactivity -- but never
+        // in the middle of a weighing. runScreensaver() parks loop(), and with
+        // it the weigh workflow, the RFID polling and the send: a spool put
+        // down just before the countdown ran out was left half-weighed, never
+        // synced, until someone touched the screen. So a spool on the platform
+        // whose weighing has not finished holds the screen on, and the
+        // countdown starts again from the moment the weighing ends (sent, or
+        // the spool taken off), the way toolSleepTick() treats `allowed`.
+        const bool weighingInProgress =
+            wfPhase == WF_SCANNING || wfPhase == WF_STABLE_WAIT || wfPhase == WF_SENDING
+            || sendPhase == "countdown" || sendPhase == "send"
+            || (wfPhase != WF_DONE && weight > AUTO_TARE_EMPTY_THRESHOLD_G);
+        if (weighingInProgress) gLastActivityMs = millis();
         if (gSleepEnabled &&
             millis() - gLastActivityMs > (uint32_t)gSleepDelayMin * 60000UL) {
             runScreensaver();

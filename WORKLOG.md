@@ -29,3 +29,13 @@ log lives in git history and the synthesised entry lives in the changelog.
   `readMifareBlock()` on all three transports. Files:
   `TigerTagSplashESP32/TigerTagSplashESP32.ino` (§9, PN532Reader),
   `TigerTagSplashESP32/pod_reader.h`, `docs/API.md`.
+
+### Fixed
+
+- The screen no longer goes to sleep in the middle of a weighing. Screen sleep
+  parks `loop()`, and the weigh workflow, RFID polling and send with it, so a
+  spool put down just before the countdown ran out stayed half-weighed and
+  unsynced until someone touched the screen. A spool on the platform whose
+  weighing has not finished now holds the screen on, and the sleep countdown
+  restarts when the weighing ends. File:
+  `TigerTagSplashESP32/TigerTagSplashESP32.ino` (`loop()`, screensaver).

@@ -52,7 +52,7 @@ the source, so this table cannot silently disagree with the file.
 | 25 | OTA (firmware + filesystem update) | 16529–17208 |
 | LVGL | LVGL bridge + main weigh screen | 17209–18172 |
 | LIVE | Remote live view: the screen out, taps back in | 18173–19022 |
-| 26 | `setup()` + `loop()` | 19023–20299 |
+| 26 | `setup()` + `loop()` | 19023–20311 |
 
 Two gaps and two oddities in that numbering, all deliberate:
 
