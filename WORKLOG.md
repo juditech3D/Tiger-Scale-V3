@@ -18,8 +18,29 @@ log lives in git history and the synthesised entry lives in the changelog.
 
 ---
 
+### Added
+
+- Remote wake without a press: `GET`/`POST :81/wake?c=CODE` on the live-view
+  port lights a dark screen (Tiger Scale screensaver or a tool's sleep panel)
+  and, on a lit one, only restarts the sleep countdown — it never injects a
+  touch, so it cannot press a button when `power_state` is one beat stale.
+  `TigerTagSplashESP32.ino` (`gRemoteWakeRequested`, `liveHandleRequest`,
+  `runScreensaver`, `toolSleepTick`), `docs/API.md`, `docs/TELEMETRY.md`.
+
 ### Fixed
 
+- A scale left on the start menu or in any tool kept sending heartbeats only on
+  transitions and was shown offline in Studio while switched on and connected:
+  `toolSleepTick()` now runs the periodic heartbeat schedule and the battery
+  poll, as `runScreensaver()` does. The cloud worker also refreshes the Firebase
+  token before each beat, because the 30-min token tick lives in `loop()`,
+  which the screensaver and the tools block for hours. `TigerTagSplashESP32.ino`.
+- A scale rebooted and left on the start menu started no web server, no live
+  view and no cloud worker (so not one heartbeat) until a tool was picked: the
+  launcher opens on `loop()`'s first pass, before those were started. They now
+  live in `bootServicesTick()` (with the token tick, the heartbeat schedule and
+  the command poll), run by `loop()` and by `toolSleepTick()`.
+  `TigerTagSplashESP32.ino`.
 - The Pages deployment no longer fails on an anonymous GitHub API rate limit:
   `scripts/fetch-published-site.py` and `scripts/verify-published-site.py` send
   the job's `GITHUB_TOKEN` to api.github.com (and only there) when it is set,
