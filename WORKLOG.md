@@ -25,3 +25,10 @@ log lives in git history and the synthesised entry lives in the changelog.
   the job's `GITHUB_TOKEN` to api.github.com (and only there) when it is set,
   and `.github/workflows/pages.yml` sets it. v3.13.0-mt.6's first deployment
   failed on "cannot read the latest release (HTTP 403)".
+
+### Changed
+
+- `README.md` opens with an "Unofficial alternative firmware" warning (GitHub
+  alert) and gains a "What this firmware adds or changes" section: the fork's
+  base version, its own installer and releases, tested on the -3.5 only, and the
+  tools and fixes it adds over the official v3.13.0.
