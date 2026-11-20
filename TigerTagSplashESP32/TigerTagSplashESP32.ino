@@ -20,29 +20,29 @@
 //   FORWARD DECLARATIONS                                   498-  808
 //   WEIGHT ROUNDING                                        809-  841
 //   GLOBAL OBJECTS                                         842- 1891
-//   CONFIGURATION VARIABLES                               1892- 2325
-//   OLED DISPLAY                                          2326- 3109
-//   CLOUD PARSING                                         3110- 3124
-//   WIFI SETUP                                            3125-10873
-//   LITTLEFS                                             10874-11173
-//   FIREBASE AUTHENTICATION                              11174-12856
-//   WEBSOCKET                                            12857-12883
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12884-13018
-//   UNIFIED WS FRAME BUILDER                             13019-13143
-//   WEIGHT FILTER HELPERS                                13144-13158
-//   POST-SEND STATE RESET (shared by all send paths)     13159-13179
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13180-13283
-//   WEB SERVER                                           13284-14412
-//   CLOUD COMMUNICATION                                  14413-14595
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14596-15103
-//   mDNS                                                 15104-15141
-//   SCALE                                                15142-15312
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15313-15445
-//   RFID                                                 15446-16528
-//   OTA — Over-the-air firmware + filesystem update    16529-17208
-//   LVGL bridge + main weigh screen                      17209-18172
-//   Remote live view: the screen out, taps back in       18173-19022
-//   SETUP & LOOP                                         19023-20311
+//   CONFIGURATION VARIABLES                               1892- 2330
+//   OLED DISPLAY                                          2331- 3120
+//   CLOUD PARSING                                         3121- 3135
+//   WIFI SETUP                                            3136-10900
+//   LITTLEFS                                             10901-11200
+//   FIREBASE AUTHENTICATION                              11201-12883
+//   WEBSOCKET                                            12884-12910
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12911-13049
+//   UNIFIED WS FRAME BUILDER                             13050-13174
+//   WEIGHT FILTER HELPERS                                13175-13189
+//   POST-SEND STATE RESET (shared by all send paths)     13190-13210
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13211-13314
+//   WEB SERVER                                           13315-14443
+//   CLOUD COMMUNICATION                                  14444-14626
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14627-15134
+//   mDNS                                                 15135-15172
+//   SCALE                                                15173-15343
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15344-15476
+//   RFID                                                 15477-16559
+//   OTA — Over-the-air firmware + filesystem update    16560-17239
+//   LVGL bridge + main weigh screen                      17240-18203
+//   Remote live view: the screen out, taps back in       18204-19062
+//   SETUP & LOOP                                         19063-20351
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -2321,6 +2321,11 @@ OledState currentOledState    = OLED_STATE_IDLE;
 uint32_t  oledStateChangeMs   = 0;
 const uint32_t OLED_MESSAGE_DURATION_MS = 2000;
 static uint32_t gLastActivityMs          = 0; // reset on touch/RFID; drives 5-min screensaver
+// Set by GET /wake on the live port (Studio's "Wake" button). Lights a dark
+// screen and presses nothing: unlike an injected tap, it cannot land on a
+// button when the screen turns out to be on already. Cleared on every sleep
+// and wake, so a stale request never cuts the next sleep short.
+static volatile bool gRemoteWakeRequested = false;
 
 // ============================================================================
 // §7 — OLED DISPLAY
@@ -2390,6 +2395,7 @@ static void runScreensaver() {
     gScreenOff = true;
     if (WiFi.isConnected()) { gLastHeartbeatScheduleMs = millis(); gHeartbeatForce = true; gHeartbeatPending = true; }
     { int16_t tx, ty; while (tsRead(tx, ty)) delay(10); } // drain any lingering touch
+    gRemoteWakeRequested = false;
 
     gfx->fillScreen(0x0000);
     gfx->flush();
@@ -2403,6 +2409,10 @@ static void runScreensaver() {
               Serial.println("[SS] wake: touch"); break; } }
         if (fabs(readWeight() - sleepW) > SS_WAKE_DELTA_G) {
             Serial.println("[SS] wake: weight change");
+            break;
+        }
+        if (gRemoteWakeRequested) {
+            Serial.println("[SS] wake: remote");
             break;
         }
 
@@ -2428,6 +2438,7 @@ static void runScreensaver() {
         delay(30);
     }
     gScreenOff = false;
+    gRemoteWakeRequested = false;
     if (WiFi.isConnected()) { gLastHeartbeatScheduleMs = millis(); gHeartbeatForce = true; gHeartbeatPending = true; }
     applyBrightness(gBrightness);
     Serial.println("[SS] Screen wake");
@@ -7754,6 +7765,7 @@ static void toolWake() {
     gToolSleepPanel = nullptr;
     gToolSleepTapped = false;
     gScreenOff = false;
+    gRemoteWakeRequested = false;
     if (WiFi.isConnected()) { gLastHeartbeatScheduleMs = millis(); gHeartbeatForce = true; gHeartbeatPending = true; }
     lv_timer_handler();           // repaint under the panel before the light comes back
     applyBrightness(gBrightness);
@@ -7765,8 +7777,22 @@ static void toolSleepTick(bool allowed, float grams) {
     // where the background update check used to live alone, so a scale left
     // on the start menu never learned there was an update.
     otaScheduleCheck();
+    // The same goes for the heartbeat: loop() is where its periodic schedule
+    // lives, so a scale left in a tool (the start menu included) sent the beats
+    // of its transitions and then nothing -- Studio counted it offline while it
+    // sat there, switched on, on the network. Same schedule as runScreensaver().
+    pollBatteryState();
+    if (gBattery.vbusChanged) {
+        gBattery.vbusChanged = false;
+        if (WiFi.isConnected()) { gLastHeartbeatScheduleMs = millis(); gHeartbeatForce = true; gHeartbeatPending = true; }
+    }
+    if (WiFi.isConnected()
+        && (millis() - gLastHeartbeatScheduleMs) >= heartbeatIntervalMs()) {
+        gLastHeartbeatScheduleMs = millis();
+        gHeartbeatPending = true;
+    }
     if (gToolSleepPanel != nullptr) {
-        if (!allowed || gToolSleepTapped) { toolWake(); return; }
+        if (!allowed || gToolSleepTapped || gRemoteWakeRequested) { toolWake(); return; }
         if (!isnan(grams)) {
             if (isnan(gToolSleepGrams)) gToolSleepGrams = grams;
             else if (fabs(grams - gToolSleepGrams) > 10.0f) {
@@ -7792,6 +7818,7 @@ static void toolSleepTick(bool allowed, float grams) {
     lv_obj_clear_flag(gToolSleepPanel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(gToolSleepPanel, toolSleepPanelCb, LV_EVENT_RELEASED, nullptr);
     gToolSleepTapped = false;
+    gRemoteWakeRequested = false;
     gToolSleepGrams = grams;
     ledcWrite(LCD_BL, 0);
     lv_timer_handler();
@@ -12947,6 +12974,10 @@ static void cloudWorkerTask(void* /*param*/) {
         }
         if (gHeartbeatPending) {
             gHeartbeatPending = false;
+            // The 30-min token tick lives in loop(), which the screensaver and
+            // every tool block: past an hour there the beat went out with an
+            // expired token and was refused. A no-op while the token is fresh.
+            ensureFirebaseToken();
             sendScaleHeartbeat();
         }
         if (gOtaPollPending) {
@@ -18663,6 +18694,15 @@ static bool liveHandleRequest(int fd) {
                 gLiveTapPhase = LIVE_TAP_PRESS;  // set last: it arms the machine
             }
         }
+        liveSend(fd, LIVE_204, strlen(LIVE_204));
+        return true;
+    }
+    // Wake the screen without touching it. Dark: the sleep loop that owns it
+    // lights it. Already on: restart the sleep countdown, press nothing.
+    if (!strcmp(path, "/wake")) {
+        if (!liveCodeOk(query)) { liveSend(fd, LIVE_403, strlen(LIVE_403)); return true; }
+        if (gScreenOff) gRemoteWakeRequested = true;
+        else            gLastActivityMs = millis();
         liveSend(fd, LIVE_204, strlen(LIVE_204));
         return true;
     }

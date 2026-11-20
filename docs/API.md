@@ -173,6 +173,7 @@ guarded by the six-character code from that screen.
 |---|---|
 | `GET :81/stream?c=CODE` | `200`, a chunked binary stream of frames, or `403` for a wrong code. Two viewers at most. |
 | `POST :81/tap?c=CODE&x=&y=` | `204`; a press (the method is not checked) |
+| `POST :81/wake?c=CODE` | `204`; lights a dark screen, or restarts the sleep countdown of a lit one. Never a press, so it cannot land on a button (the method is not checked) |
 | `GET :81/` or `GET :81/CODE` | the viewer page |
 
 `/stream` and its `403` carry `Access-Control-Allow-Origin: *`, so a page can
