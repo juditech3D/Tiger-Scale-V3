@@ -310,7 +310,7 @@ to the scales of the account that publish `lan_url` and `lan_access_code`.
 | Direction | Message |
 |---|---|
 | scale → client | `{"type":"reader-connected","reader":"1"}` (and `"2"`), sent on connect |
-| scale → client | `{"type":"card","reader":"1","uid":"04a1…","atr":"3b8f…","rawPagesHex":"…"}` — pages 4–39 of an NTAG, `null` for a 4-byte-UID MIFARE Classic |
+| scale → client | `{"type":"card","reader":"1","uid":"04a1…","atr":"3b8f…","rawPagesHex":"…"}` — pages 4–39 of an NTAG, `null` for a 4-byte-UID MIFARE Classic. A Bambu Lab chip also carries `"bambuBlocksHex":{"0":"…","1":"…",…}`: the data blocks of sectors 0–4, 32 hex characters each, opened with the key A each sector derives from the UID (HKDF-SHA256). The field is absent on any other chip |
 | scale → client | `{"type":"card-removed","reader":"1"}` |
 | client → scale | `{"type":"read-now","reader":"1","id":7,"start":4,"length":144}` → `{"type":"read-result","id":7,"ok":true,"rawPagesHex":"…"}` |
 | client → scale | `{"type":"write-now","reader":"1","id":8,"verify":true,"pages":[{"index":4,"hexData":"01020304"}]}` → `{"type":"write-result","id":8,"ok":true,"pagesWritten":1,"verified":true,"mismatchPages":[]}` |

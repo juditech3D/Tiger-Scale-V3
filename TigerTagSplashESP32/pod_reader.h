@@ -17,4 +17,5 @@ struct PodReader {
     uint8_t      uidLen;
     uint8_t      misses;
     String       pagesHex;      // pages 4-39 as last read, "" if unreadable
+    String       bambuHex;      // a Bambu Lab chip's blocks as a JSON object, "" if not one
 };
