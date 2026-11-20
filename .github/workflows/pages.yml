@@ -82,6 +82,10 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
+    env:
+      # Read by the fetch and verify scripts for the GitHub API only: anonymous
+      # calls share the runner's 60-an-hour limit and failed a deployment.
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
 

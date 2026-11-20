@@ -48,6 +48,17 @@ NONB_ENV = "esp32s3_hsu"
 NONB_BOARD = "3.5"
 
 
+# The GitHub API answers an anonymous caller 60 times an hour per address, and a
+# hosted runner shares its address with every other job on it: the v3.13.0-mt.6
+# release failed to deploy on "HTTP 403" from exactly that. In Actions the job's
+# own token lifts the limit. It goes to api.github.com and nowhere else.
+def api_headers(url):
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if token and url.startswith("https://api.github.com/"):
+        return {"Authorization": "Bearer " + token}
+    return {}
+
+
 def get(url, cache_bust=False):
     if cache_bust:
         url += ("&" if "?" in url else "?") + "cb=%d" % int(time.time())
@@ -55,6 +66,7 @@ def get(url, cache_bust=False):
         "User-Agent": "tigerscale-verify",
         "Cache-Control": "no-cache",
         "Pragma": "no-cache",
+        **api_headers(url),
     })
     with urllib.request.urlopen(req, timeout=60) as r:
         return r.read()
