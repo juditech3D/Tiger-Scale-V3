@@ -35,6 +35,12 @@ log lives in git history and the synthesised entry lives in the changelog.
   poll, as `runScreensaver()` does. The cloud worker also refreshes the Firebase
   token before each beat, because the 30-min token tick lives in `loop()`,
   which the screensaver and the tools block for hours. `TigerTagSplashESP32.ino`.
+- A scale rebooted and left on the start menu started no web server, no live
+  view and no cloud worker (so not one heartbeat) until a tool was picked: the
+  launcher opens on `loop()`'s first pass, before those were started. They now
+  live in `bootServicesTick()` (with the token tick, the heartbeat schedule and
+  the command poll), run by `loop()` and by `toolSleepTick()`.
+  `TigerTagSplashESP32.ino`.
 - The Pages deployment no longer fails on an anonymous GitHub API rate limit:
   `scripts/fetch-published-site.py` and `scripts/verify-published-site.py` send
   the job's `GITHUB_TOKEN` to api.github.com (and only there) when it is set,
