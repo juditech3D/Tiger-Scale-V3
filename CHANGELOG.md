@@ -14,6 +14,11 @@ scaffold's placeholder text.
 
 Nothing yet.
 
+## [v3.13.0-mt.6](docs/release-notes/v3.13.0-mt.6.md)
+
+Bambu Lab chips read in the TigerPOD tool and sent to Studio as raw blocks;
+screen sleep waits for a weighing in progress to finish.
+
 ## [v3.13.0-mt.5](docs/release-notes/v3.13.0-mt.5.md)
 
 Two start-menu tools: a step-by-step parts counter and resin mixing (two-part
