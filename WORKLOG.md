@@ -25,6 +25,8 @@ log lives in git history and the synthesised entry lives in the changelog.
   the job's `GITHUB_TOKEN` to api.github.com (and only there) when it is set,
   and `.github/workflows/pages.yml` sets it. v3.13.0-mt.6's first deployment
   failed on "cannot read the latest release (HTTP 403)".
+- `README.md`: the install button and the `git clone` command point to this
+  fork (juditech3d.github.io / juditech3D) instead of the official repository.
 
 ### Changed
 
