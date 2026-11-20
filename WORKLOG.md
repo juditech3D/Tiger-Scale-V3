@@ -17,3 +17,11 @@ Reset this file to the header above at each checkpoint. Nothing is lost: the raw
 log lives in git history and the synthesised entry lives in the changelog.
 
 ---
+
+### Fixed
+
+- The Pages deployment no longer fails on an anonymous GitHub API rate limit:
+  `scripts/fetch-published-site.py` and `scripts/verify-published-site.py` send
+  the job's `GITHUB_TOKEN` to api.github.com (and only there) when it is set,
+  and `.github/workflows/pages.yml` sets it. v3.13.0-mt.6's first deployment
+  failed on "cannot read the latest release (HTTP 403)".
