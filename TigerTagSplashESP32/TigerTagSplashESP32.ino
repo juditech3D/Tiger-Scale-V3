@@ -15,34 +15,34 @@
 //
 //   TABLE OF CONTENTS                                     line range
 //   ---------------------------------------------------- -----------
-//   HARDWARE CONFIGURATION                                 267-  460
-//   OTA CONFIGURATION                                      461-  497
-//   FORWARD DECLARATIONS                                   498-  808
-//   WEIGHT ROUNDING                                        809-  841
-//   GLOBAL OBJECTS                                         842- 1891
-//   CONFIGURATION VARIABLES                               1892- 2325
-//   OLED DISPLAY                                          2326- 3109
-//   CLOUD PARSING                                         3110- 3124
-//   WIFI SETUP                                            3125-10873
-//   LITTLEFS                                             10874-11173
-//   FIREBASE AUTHENTICATION                              11174-12856
-//   WEBSOCKET                                            12857-12883
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12884-13018
-//   UNIFIED WS FRAME BUILDER                             13019-13143
-//   WEIGHT FILTER HELPERS                                13144-13158
-//   POST-SEND STATE RESET (shared by all send paths)     13159-13179
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13180-13283
-//   WEB SERVER                                           13284-14412
-//   CLOUD COMMUNICATION                                  14413-14595
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14596-15103
-//   mDNS                                                 15104-15141
-//   SCALE                                                15142-15312
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15313-15445
-//   RFID                                                 15446-16528
-//   OTA — Over-the-air firmware + filesystem update    16529-17208
-//   LVGL bridge + main weigh screen                      17209-18172
-//   Remote live view: the screen out, taps back in       18173-19022
-//   SETUP & LOOP                                         19023-20311
+//   HARDWARE CONFIGURATION                                 268-  461
+//   OTA CONFIGURATION                                      462-  498
+//   FORWARD DECLARATIONS                                   499-  809
+//   WEIGHT ROUNDING                                        810-  842
+//   GLOBAL OBJECTS                                         843- 1892
+//   CONFIGURATION VARIABLES                               1893- 2326
+//   OLED DISPLAY                                          2327- 3110
+//   CLOUD PARSING                                         3111- 3125
+//   WIFI SETUP                                            3126-11312
+//   LITTLEFS                                             11313-11612
+//   FIREBASE AUTHENTICATION                              11613-13295
+//   WEBSOCKET                                            13296-13322
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 13323-13457
+//   UNIFIED WS FRAME BUILDER                             13458-13582
+//   WEIGHT FILTER HELPERS                                13583-13597
+//   POST-SEND STATE RESET (shared by all send paths)     13598-13618
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13619-13722
+//   WEB SERVER                                           13723-14905
+//   CLOUD COMMUNICATION                                  14906-15088
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 15089-15596
+//   mDNS                                                 15597-15634
+//   SCALE                                                15635-15805
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15806-15938
+//   RFID                                                 15939-17021
+//   OTA — Over-the-air firmware + filesystem update    17022-17701
+//   LVGL bridge + main weigh screen                      17702-18665
+//   Remote live view: the screen out, taps back in       18666-19515
+//   SETUP & LOOP                                         19516-20804
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -116,6 +116,7 @@ struct MetadataCache { String mfr; String mat; String col; uint32_t productId; }
 #include "tools_page.h"           // the start menu's tool choice (/tools) — same reason
 #include "presse_page.h"          // the heat press memo editor (/presse) — same reason
 #include "presse_icons.h"         // its product thumbnails (scripts/make-presse-icons.py)
+#include "resine_page.h"          // the resin presets editor (/resine) and ResinPreset — same reason
 #include "pod_reader.h"           // TigerPOD tool (§9): one reader as Studio sees it
 #include <mutex>                  // TigerPOD tool (§9): its socket queue
 #include <deque>
@@ -8098,26 +8099,324 @@ static void runPartsCounter(lv_obj_t *backTo) {
 // ---------------------------------------------------------------------------
 // Resin mixing
 // ---------------------------------------------------------------------------
-// Two-part resin or epoxy by weight. Cup on (on the parcel-scale adapter),
-// TARE; pour A, "Go to B"; the screen then shows how much B the ratio asks for,
-// what is in, what is left, with a bar, a beep when it is reached and red when
-// it is over. The ratio is "100 : B" (B parts of hardener for 100 of resin), as
-// resin datasheets give it; it is kept in NVS (config/mixB).
+// Two-part resin or epoxy by weight. On opening, a card asks for the adapter
+// and the empty cup; confirming it tares, so the first reading is resin A.
+// Pour A, "Go to B"; the screen then shows how much B the ratio asks for, what
+// is in, what is left, with a bar, a beep when it is reached and red when it is
+// over. Once the dose is reached, a preset with a working time offers a
+// countdown of it (resinPotTimer).
+//
+// The ratio comes from a preset: a list in LittleFS as /resine.json, edited
+// from a browser at /resine (resine_page.h), the heat press memo's pattern:
+//
+//   {"settings":{"defaults":true},
+//    "presets":[{"name","color":"#RRGGBB","a":2,"b":1,"pot":40,"note"}]}
+//
+// a : b is the ratio by weight as resin datasheets give it, pot the working
+// time in minutes (0 = no timer). The - and + steppers adjust the ratio for
+// the mix in progress only; the preset itself changes only from the editor.
+// The preset last picked is kept in NVS (config/mixP). The HTTP handlers never
+// touch LVGL: they replace the file and raise gResineChanged, which the tool's
+// loop picks up.
+
+#define RESINE_PATH      "/resine.json"
+#define RESINE_TMP_PATH  "/resine.tmp"
+#define RESINE_MAX_BYTES 8192
+
+static volatile bool gResineChanged = false;   // set by the HTTP handlers
+
+// RESINE_DEFAULTS_EN / _FR live in resine_page.h, for the reason
+// presseDefaults() gives.
+static const char *resineDefaults() {
+    return gLanguage == LANG_FR ? RESINE_DEFAULTS_FR : RESINE_DEFAULTS_EN;
+}
+
+static bool resineValid(const JsonDocument &doc) {
+    return doc["presets"].is<JsonArrayConst>();
+}
+
+// Replace the file in two steps so a reader never sees half a list.
+static bool resineWriteFile(const char *data, size_t len) {
+    File f = LittleFS.open(RESINE_TMP_PATH, "w");
+    if (!f) return false;
+    bool ok = f.write((const uint8_t *)data, len) == len;
+    f.close();
+    if (!ok) { LittleFS.remove(RESINE_TMP_PATH); return false; }
+    LittleFS.remove(RESINE_PATH);
+    return LittleFS.rename(RESINE_TMP_PATH, RESINE_PATH);
+}
+
+// Fills `out` from the file (the defaults are written first when there is
+// none or it does not parse) and returns how many presets it holds. A preset
+// whose ratio is not two numbers above zero is skipped, not guessed at.
+static int resineLoad(ResinPreset *out, int max) {
+    PresseJsonDocument doc(RESINE_MAX_BYTES * 2);
+    bool ok = false;
+    if (LittleFS.exists(RESINE_PATH)) {
+        File f = LittleFS.open(RESINE_PATH, "r");
+        if (f) {
+            ok = !deserializeJson(doc, f) && resineValid(doc);
+            f.close();
+        }
+    }
+    if (!ok) {
+        const char *def = resineDefaults();
+        resineWriteFile(def, strlen(def));
+        deserializeJson(doc, def);
+    }
+    int n = 0;
+    for (JsonObject p : doc["presets"].as<JsonArray>()) {
+        if (n >= max) break;
+        float a = p["a"] | 0.0f, b = p["b"] | 0.0f;
+        if (!(a > 0.0f) || !(b > 0.0f)) continue;
+        ResinPreset &r = out[n++];
+        strlcpy(r.name, p["name"] | "-", sizeof r.name);   // owner data, not UI text
+        const char *hex = p["color"] | "";
+        r.color = (hex[0] == '#' && strlen(hex) >= 7) ? strtoul(hex + 1, nullptr, 16) : 0x607D8B;
+        r.a = a;
+        r.b = b;
+        int pot = p["pot"] | 0;
+        r.pot = (uint16_t)constrain(pot, 0, 999);
+    }
+    return n;
+}
+
+// "2 : 1", "100 : 45", "1.5 : 1" -- the ratio as the owner typed it.
+static void resinRatioText(char *buf, size_t n, float a, float b) {
+    snprintf(buf, n, "%g : %g", roundf(a * 10.0f) / 10.0f, roundf(b * 10.0f) / 10.0f);
+}
+
+// The address the presets are edited at, or "" with no WiFi.
+static String resineEditUrl() {
+    if (!WiFi.isConnected()) return String("");
+    return String("http://") + WiFi.localIP().toString() + "/resine";
+}
+
+// The preset picker: a three-column grid of tiles, the rail of the other lists
+// when they do not all fit, the indicative-values note and the editor's
+// address under them. Returns the index picked, or -1 for Back.
+static int resinPickPreset(const ResinPreset *p, int n, int cur) {
+    static int sPick;
+    auto cb = [](lv_event_t *e) {
+        sPick = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_current_target(e));
+    };
+    sPick = -2;
+
+    lv_obj_t *prev = lv_scr_act();
+    lv_obj_t *scr = lv_obj_create(nullptr);
+    lv_obj_set_style_bg_color(scr, LVCOL_BG, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lvglAddHeader(scr, t(I18N_MIX_PICK), cb, nullptr, (intptr_t)-1);
+
+    String url = resineEditUrl();
+    const int FOOT = 38 + (url.length() ? 20 : 0);
+    const int bottom = 320 - FOOT - 4;
+
+    lv_obj_t *list = lv_obj_create(scr);
+    lv_obj_remove_style_all(list);
+    lv_obj_set_size(list, 480, bottom - 49);
+    lv_obj_set_pos(list, 0, 49);
+    lv_obj_set_style_pad_top(list, 8, 0);
+    lv_obj_set_style_pad_bottom(list, 8, 0);
+    lv_obj_set_style_pad_hor(list, 10, 0);
+    lv_obj_set_style_pad_row(list, 8, 0);
+    lv_obj_set_style_pad_column(list, 8, 0);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    lvglStyleScrollbar(list);
+
+    lv_obj_t *curTile = nullptr;
+    for (int i = 0; i < n; i++) {
+        lv_obj_t *tile = lv_btn_create(list);
+        lv_obj_set_size(tile, LV_PCT(32), 62);
+        lv_obj_set_style_bg_color(tile, LVCOL_CARD, 0);
+        lv_obj_set_style_border_side(tile, LV_BORDER_SIDE_LEFT, 0);
+        lv_obj_set_style_border_width(tile, 5, 0);
+        lv_obj_set_style_border_color(tile, lv_color_hex(p[i].color), 0);
+        lv_obj_set_style_radius(tile, 12, 0);
+        lv_obj_set_style_shadow_width(tile, 0, 0);
+        lv_obj_set_style_pad_hor(tile, 8, 0);
+        lv_obj_set_style_pad_ver(tile, 6, 0);
+        if (i == cur) {
+            lv_obj_set_style_outline_width(tile, 2, 0);
+            lv_obj_set_style_outline_color(tile, LVCOL_ACCENT, 0);
+            lv_obj_set_style_outline_pad(tile, 0, 0);
+            curTile = tile;
+        }
+        lv_obj_clear_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_flex_flow(tile, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(tile, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+        lv_obj_set_style_pad_row(tile, 2, 0);
+        lv_obj_set_user_data(tile, (void *)(intptr_t)i);
+        lv_obj_add_event_cb(tile, cb, LV_EVENT_CLICKED, nullptr);
+        lv_obj_t *nm = lv_label_create(tile);
+        lv_label_set_text(nm, p[i].name);
+        lv_label_set_long_mode(nm, LV_LABEL_LONG_DOT);
+        lv_obj_set_width(nm, LV_PCT(100));
+        lv_obj_set_style_text_font(nm, &gFont16, 0);
+        lv_obj_set_style_text_color(nm, LVCOL_TEXT, 0);
+        char rb[24];
+        resinRatioText(rb, sizeof rb, p[i].a, p[i].b);
+        lv_obj_t *rt = lv_label_create(tile);
+        lv_label_set_text(rt, rb);
+        lv_obj_set_style_text_font(rt, &gFont14, 0);
+        lv_obj_set_style_text_color(rt, LVCOL_MUTED, 0);
+    }
+
+    // The rail only when the tiles do not all fit; the list then narrows to
+    // make room for it, and the percentage widths follow.
+    lv_obj_update_layout(list);
+    if (lv_obj_get_scroll_bottom(list) > 0) {
+        lv_obj_set_width(list, 428);
+        lv_obj_set_style_pad_left(list, 10, 0);
+        lv_obj_set_style_pad_right(list, 6, 0);
+        lvglStyleScrollbar(list);
+        lvglAddScrollRail(scr, list, 57, bottom - 8, 2 * (62 + 8));
+        if (curTile) lv_obj_scroll_to_view(curTile, LV_ANIM_OFF);
+        lvglRailRefresh(list);
+    }
+
+    lv_obj_t *note = lv_label_create(scr);
+    lv_label_set_text(note, t(I18N_PR_INDICATIVE));
+    lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(note, 460);
+    lv_obj_set_style_text_align(note, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(note, &gFont14, 0);
+    lv_obj_set_style_text_color(note, LVCOL_MUTED, 0);
+    lv_obj_set_pos(note, 10, bottom + 2);
+    if (url.length()) {
+        lv_obj_t *u = lv_label_create(scr);
+        lv_label_set_text(u, url.c_str());
+        lv_obj_set_width(u, 460);
+        lv_obj_set_style_text_align(u, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_font(u, &gFont14, 0);
+        lv_obj_set_style_text_color(u, LVCOL_TEXT, 0);
+        lv_obj_set_pos(u, 10, 320 - 22);
+    }
+
+    lv_scr_load(scr);
+    lvglDrainPress(800);
+    while (sPick == -2) {
+        lv_timer_handler(); delay(5);
+        wifiKeepAlive();
+        toolSleepTick(true, NAN);
+    }
+    int r = sPick;
+    lv_scr_load(prev);
+    lv_obj_del(scr);
+    lvglDrainPress(800);
+    return r;
+}
+
+// The working-time countdown, started once the dose is reached. It keeps the
+// screen awake (a countdown nobody can see is no use), beeps five minutes
+// before the end and at the end, then stays red until left. Returns true for
+// "New mix", false for Stop / Back.
+static bool resinPotTimer(const char *name, float grams, int minutes) {
+    enum { PT_NONE, PT_BACK, PT_NEW };
+    static int sAct;
+    auto cb = [](lv_event_t *e) {
+        sAct = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    };
+    sAct = PT_NONE;
+
+    lv_obj_t *prev = lv_scr_act();
+    lv_obj_t *scr = lv_obj_create(nullptr);
+    lv_obj_set_style_bg_color(scr, LVCOL_BG, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lvglAddHeader(scr, t(I18N_MIX_POT), cb, nullptr, (intptr_t)PT_BACK);
+
+    lv_obj_t *what = toolLabel(scr, 66, &gFont16, LVCOL_MUTED);
+    char buf[80];
+    snprintf(buf, sizeof buf, "%s  -  %.0f g", name, grams);
+    lv_label_set_text(what, buf);
+    lv_obj_t *big = toolLabel(scr, 104, &lv_font_montserrat_48, LVCOL_TEXT);
+    lv_obj_t *sub = toolLabel(scr, 178, &gFont16, LVCOL_TEXT);
+    lv_obj_t *bar = lv_bar_create(scr);
+    lv_obj_set_size(bar, 440, 12);
+    lv_obj_set_pos(bar, 20, 216);
+    lv_bar_set_range(bar, 0, 1000);
+    lv_obj_set_style_bg_color(bar, LVCOL_CARD, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(0x3FC8E4), LV_PART_INDICATOR);
+    toolButton(scr, 8, 248, 226, 64, t(I18N_PR_STOP), LVCOL_CARD, cb, PT_BACK);
+    toolButton(scr, 246, 248, 226, 64, t(I18N_MIX_NEW), LVCOL_ACCENT, cb, PT_NEW);
+
+    lv_scr_load(scr);
+    lvglDrainPress(800);
+
+    const uint32_t total = (uint32_t)minutes * 60000UL;
+    const uint32_t t0 = millis();
+    bool warned = minutes <= 5, ended = false;
+    uint32_t lastUi = 0;
+    for (;;) {
+        lv_timer_handler(); delay(5);
+        wifiKeepAlive();
+        toolSleepTick(false, NAN);
+        if (sAct != PT_NONE) break;
+        if (millis() - lastUi < 200) continue;
+        lastUi = millis();
+
+        uint32_t el = millis() - t0;
+        uint32_t left = el >= total ? 0 : total - el;
+        uint32_t s = (left + 999) / 1000;
+        if (s >= 3600) snprintf(buf, sizeof buf, "%u:%02u:%02u", (unsigned)(s / 3600), (unsigned)(s / 60 % 60), (unsigned)(s % 60));
+        else           snprintf(buf, sizeof buf, "%02u:%02u", (unsigned)(s / 60), (unsigned)(s % 60));
+        toolSetText(big, buf);
+        lv_bar_set_value(bar, total ? (int32_t)((uint64_t)left * 1000 / total) : 0, LV_ANIM_OFF);
+        if (!warned && left <= 5UL * 60000UL) { warned = true; playBeeps(1800, 120, 2); }
+        if (left == 0 && !ended) {
+            ended = true;
+            playBeeps(2000, 150, 4);
+            lv_obj_set_style_text_color(big, LVCOL_RED, 0);
+            lv_obj_set_style_text_color(sub, LVCOL_RED, 0);
+        }
+        toolSetText(sub, t(ended ? I18N_MIX_POT_OVER : I18N_MIX_POT_LEFT));
+    }
+    bool again = sAct == PT_NEW;
+    lv_scr_load(prev);
+    lv_obj_del(scr);
+    lvglDrainPress(800);
+    return again;
+}
+
 static void runResinMix(lv_obj_t *backTo) {
-    enum { MA_NONE, MA_BACK, MA_TARE, MA_MINUS, MA_PLUS, MA_NEXT };
+    // The editor is served by the async server; start it now if the tool was
+    // opened before loop() did, as the heat press memo does.
+    if (ENABLE_HTTP_SERVER && gWebServerStartPending && !gWebServerStarted && !gWebServerStarting) {
+        gWebServerStarting = true;
+        startWebServerNow();
+    }
+
+    enum { MA_NONE, MA_BACK, MA_TARE, MA_MINUS, MA_PLUS, MA_NEXT, MA_PICK, MA_READY };
     static int sAct;
     auto cb = [](lv_event_t *e) {
         sAct = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
     };
     sAct = MA_NONE;
 
+    // The list in PSRAM, with a DRAM fallback (never ps_malloc).
+    ResinPreset *presets = (ResinPreset *)heap_caps_malloc(sizeof(ResinPreset) * RESIN_MAX_PRESETS, MALLOC_CAP_SPIRAM);
+    if (!presets) presets = (ResinPreset *)malloc(sizeof(ResinPreset) * RESIN_MAX_PRESETS);
+    if (!presets) return;
+    gResineChanged = false;
+    int nPresets = resineLoad(presets, RESIN_MAX_PRESETS);
+    if (nPresets == 0) {                       // an emptied list still mixes
+        strlcpy(presets[0].name, "-", sizeof presets[0].name);
+        presets[0].color = 0x607D8B; presets[0].a = 2.0f; presets[0].b = 1.0f; presets[0].pot = 0;
+        nPresets = 1;
+    }
     prefs.begin("config", true);
-    int ratioB = prefs.getUShort("mixB", 50);
+    int sel = prefs.getUChar("mixP", 0);
     prefs.end();
-    if (ratioB < 1 || ratioB > 400) ratioB = 50;
-    bool ratioDirty = false;
+    if (sel >= nPresets) sel = 0;
+    const int selAtOpen = sel;
 
-    enum { PH_CUP, PH_A, PH_B } ph = PH_CUP;
+    float ratioB = 0.0f;                       // parts of B per 100 of A, this mix
+    bool adjusted = false;                     // ratioB moved off the preset by - / +
+
+    enum { PH_PREP, PH_A, PH_B } ph = PH_PREP;
     float aGrams = 0.0f;
     bool  beeped = false;
 
@@ -8127,20 +8426,44 @@ static void runResinMix(lv_obj_t *backTo) {
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
     lvglAddHeader(scr, t(I18N_TOOL_MIX), cb, nullptr, (intptr_t)MA_BACK);
 
-    // Ratio stepper, top.
-    lv_obj_t *rCap = lv_label_create(scr);
-    lv_label_set_text(rCap, t(I18N_MIX_RATIO));
-    lv_obj_set_style_text_font(rCap, &gFont14, 0);
-    lv_obj_set_style_text_color(rCap, LVCOL_MUTED, 0);
-    lv_obj_set_pos(rCap, 12, 64);
-    toolButton(scr, 216, 52, 48, 44, "-", LVCOL_CARD, cb, MA_MINUS, true);
-    lv_obj_t *rVal = lv_label_create(scr);
-    lv_obj_set_width(rVal, 140);
-    lv_obj_set_style_text_align(rVal, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(rVal, &gFont20, 0);
-    lv_obj_set_style_text_color(rVal, LVCOL_TEXT, 0);
-    lv_obj_set_pos(rVal, 268, 62);
-    toolButton(scr, 412, 52, 48, 44, "+", LVCOL_CARD, cb, MA_PLUS, true);
+    // The preset button: colour dot, name, ratio. Touch it for the list.
+    lv_obj_t *chip = lv_btn_create(scr);
+    lv_obj_set_size(chip, 300, 44);
+    lv_obj_set_pos(chip, 12, 54);
+    lv_obj_set_style_bg_color(chip, LVCOL_CARD, 0);
+    lv_obj_set_style_border_color(chip, LVCOL_BORDER, 0);
+    lv_obj_set_style_border_width(chip, 1, 0);
+    lv_obj_set_style_radius(chip, 12, 0);
+    lv_obj_set_style_shadow_width(chip, 0, 0);
+    lv_obj_set_style_pad_hor(chip, 12, 0);
+    lv_obj_clear_flag(chip, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_user_data(chip, (void *)(intptr_t)MA_PICK);
+    lv_obj_add_event_cb(chip, cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *dot = lv_obj_create(chip);
+    lv_obj_remove_style_all(dot);
+    lv_obj_set_size(dot, 12, 12);
+    lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(dot, LV_OBJ_FLAG_CLICKABLE);   // a touch on it is a touch on the button
+    lv_obj_align(dot, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_t *chipName = lv_label_create(chip);
+    lv_label_set_long_mode(chipName, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(chipName, 160);
+    lv_obj_set_style_text_font(chipName, &gFont16, 0);
+    lv_obj_set_style_text_color(chipName, LVCOL_TEXT, 0);
+    lv_obj_align(chipName, LV_ALIGN_LEFT_MID, 22, 0);
+    lv_obj_t *chipRatio = lv_label_create(chip);
+    lv_obj_set_style_text_font(chipRatio, &gFont14, 0);
+    lv_obj_set_style_text_color(chipRatio, LVCOL_MUTED, 0);
+    lv_obj_align(chipRatio, LV_ALIGN_RIGHT_MID, -20, 0);
+    lv_obj_t *chipArrow = lv_label_create(chip);
+    lv_label_set_text(chipArrow, LV_SYMBOL_DOWN);
+    lv_obj_set_style_text_font(chipArrow, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(chipArrow, LVCOL_MUTED, 0);
+    lv_obj_align(chipArrow, LV_ALIGN_RIGHT_MID, 0, 0);
+
+    toolButton(scr, 322, 54, 70, 44, "-", LVCOL_CARD, cb, MA_MINUS, true);
+    toolButton(scr, 400, 54, 70, 44, "+", LVCOL_CARD, cb, MA_PLUS, true);
 
     lv_obj_t *phase = toolLabel(scr, 106, &gFont16, LVCOL_ACCENT);
     lv_obj_t *big   = toolLabel(scr, 128, &lv_font_montserrat_48, LVCOL_TEXT);
@@ -8158,10 +8481,80 @@ static void runResinMix(lv_obj_t *backTo) {
     lv_obj_t *nextBtn = toolButton(scr, 128, 248, 344, 64, t(I18N_MIX_NEXT), LVCOL_ACCENT, cb, MA_NEXT);
     lv_obj_t *nextLbl = lv_obj_get_child(nextBtn, 0);
 
-    auto showRatio = [&]() {
-        char b[16]; snprintf(b, sizeof b, "100 : %d", ratioB);
-        lv_label_set_text(rVal, b);
+    // The "before you start" card, over everything. Its dim backdrop is
+    // clickable so a touch beside the card does not reach the screen below.
+    lv_obj_t *prep = lv_obj_create(scr);
+    lv_obj_remove_style_all(prep);
+    lv_obj_set_size(prep, 480, 320);
+    lv_obj_set_pos(prep, 0, 0);
+    lv_obj_set_style_bg_color(prep, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(prep, LV_OPA_60, 0);
+    lv_obj_add_flag(prep, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(prep, LV_OBJ_FLAG_SCROLLABLE);
+    {
+        lv_obj_t *card = lv_obj_create(prep);
+        lv_obj_set_size(card, 400, 264);
+        lv_obj_set_pos(card, 40, 28);
+        lv_obj_set_style_bg_color(card, LVCOL_CARD, 0);
+        lv_obj_set_style_border_color(card, LVCOL_BORDER, 0);
+        lv_obj_set_style_border_width(card, 1, 0);
+        lv_obj_set_style_radius(card, 16, 0);
+        lv_obj_set_style_pad_all(card, 0, 0);
+        lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t *ttl = lv_label_create(card);
+        lv_label_set_text(ttl, t(I18N_MIX_PREP_TITLE));
+        lv_obj_set_style_text_font(ttl, &gFont20, 0);
+        lv_obj_set_style_text_color(ttl, LVCOL_TEXT, 0);
+        lv_obj_set_pos(ttl, 18, 14);
+        const LangKey steps[3] = { I18N_MIX_PREP_1, I18N_MIX_PREP_2, I18N_MIX_PREP_3 };
+        for (int i = 0; i < 3; i++) {
+            lv_obj_t *num = lv_obj_create(card);
+            lv_obj_remove_style_all(num);
+            lv_obj_set_size(num, 26, 26);
+            lv_obj_set_pos(num, 18, 52 + i * 36);
+            lv_obj_set_style_radius(num, LV_RADIUS_CIRCLE, 0);
+            lv_obj_set_style_bg_color(num, lv_color_hex(0x1ABC9C), 0);
+            lv_obj_set_style_bg_opa(num, LV_OPA_COVER, 0);
+            lv_obj_t *nl = lv_label_create(num);
+            char d[2] = { (char)('1' + i), '\0' };
+            lv_label_set_text(nl, d);
+            lv_obj_set_style_text_font(nl, &gFont14, 0);
+            lv_obj_set_style_text_color(nl, LVCOL_BG, 0);
+            lv_obj_center(nl);
+            lv_obj_t *sl = lv_label_create(card);
+            lv_label_set_text(sl, t(steps[i]));
+            lv_label_set_long_mode(sl, LV_LABEL_LONG_DOT);
+            lv_obj_set_width(sl, 336);
+            lv_obj_set_style_text_font(sl, &gFont16, 0);
+            lv_obj_set_style_text_color(sl, LVCOL_TEXT, 0);
+            lv_obj_set_pos(sl, 54, 55 + i * 36);
+        }
+        lv_obj_t *hint = lv_label_create(card);
+        lv_label_set_text(hint, t(I18N_MIX_PREP_HINT));
+        lv_label_set_long_mode(hint, LV_LABEL_LONG_DOT);
+        lv_obj_set_width(hint, 364);
+        lv_obj_set_style_text_font(hint, &gFont14, 0);
+        lv_obj_set_style_text_color(hint, LVCOL_MUTED, 0);
+        lv_obj_set_pos(hint, 18, 164);
+        toolButton(card, 16, 196, 120, 52, t(I18N_CANCEL), LVCOL_BG, cb, MA_BACK);
+        toolButton(card, 146, 196, 236, 52, t(I18N_MIX_PREP_OK), LVCOL_GREEN, cb, MA_READY);
+    }
+
+    auto applyPreset = [&]() {
+        const ResinPreset &p = presets[sel];
+        ratioB = p.b * 100.0f / p.a;
+        adjusted = false;
+        lv_obj_set_style_bg_color(dot, lv_color_hex(p.color), 0);
+        lv_label_set_text(chipName, p.name);
     };
+    auto showRatio = [&]() {
+        char b[24];
+        if (adjusted) snprintf(b, sizeof b, "100 : %g", roundf(ratioB * 10.0f) / 10.0f);
+        else          resinRatioText(b, sizeof b, presets[sel].a, presets[sel].b);
+        lv_label_set_text(chipRatio, b);
+        lv_obj_set_style_text_color(chipRatio, adjusted ? LVCOL_YELLOW : LVCOL_MUTED, 0);
+    };
+    applyPreset();
     showRatio();
 
     lv_scr_load(scr);
@@ -8174,26 +8567,59 @@ static void runResinMix(lv_obj_t *backTo) {
         wifiKeepAlive();
         toolSleepTick(true, w);
 
+        if (gResineChanged) {                  // saved from the editor meanwhile
+            gResineChanged = false;
+            int n = resineLoad(presets, RESIN_MAX_PRESETS);
+            if (n > 0) {
+                nPresets = n;
+                if (sel >= nPresets) sel = 0;
+                bool keep = adjusted; float kept = ratioB;
+                applyPreset();
+                if (keep) { adjusted = true; ratioB = kept; }
+                showRatio();
+            }
+        }
+
         int a = sAct;
         if (a == MA_BACK) break;          // read before it is cleared, or Back is lost
         if (a != MA_NONE) sAct = MA_NONE;
-        if (a == MA_TARE) {
-            lv_obj_add_state(tareBtn, LV_STATE_DISABLED);
+
+        if (a == MA_TARE || a == MA_READY) {
+            lv_obj_t *busy = a == MA_TARE ? tareBtn : nullptr;
+            if (busy) lv_obj_add_state(busy, LV_STATE_DISABLED);
             lv_timer_handler();
             toolTare();
-            lv_obj_clear_state(tareBtn, LV_STATE_DISABLED);
+            if (busy) lv_obj_clear_state(busy, LV_STATE_DISABLED);
             ph = PH_A; aGrams = 0.0f; beeped = false;
+            lv_obj_add_flag(prep, LV_OBJ_FLAG_HIDDEN);
             lvglDrainPress(600);
-        } else if (a == MA_MINUS && ratioB > 1) {
-            ratioB--; ratioDirty = true; showRatio();
-        } else if (a == MA_PLUS && ratioB < 400) {
-            ratioB++; ratioDirty = true; showRatio();
+        } else if (a == MA_MINUS || a == MA_PLUS) {
+            // Steps of 1 part per 100, or 0.5 below 10 (a 5 % catalyst would
+            // otherwise move by a fifth at each touch).
+            float step = ratioB < 10.0f ? 0.5f : 1.0f;
+            float nb = ratioB + (a == MA_PLUS ? step : -step);
+            if (nb >= 0.5f && nb <= 1000.0f) {
+                ratioB = roundf(nb * 2.0f) / 2.0f;
+                adjusted = true;
+                showRatio();
+            }
+        } else if (a == MA_PICK) {
+            int r = resinPickPreset(presets, nPresets, sel);
+            if (r >= 0 && r < nPresets) { sel = r; applyPreset(); showRatio(); }
         } else if (a == MA_NEXT) {
             if (ph == PH_A && !isnan(w) && w > 0.5f) {
                 aGrams = w; ph = PH_B; beeped = false;
                 playBeeps(1800, 60, 1);
             } else if (ph == PH_B) {
-                ph = PH_CUP;          // Start over: a new cup needs a new TARE
+                const float target = aGrams * ratioB / 100.0f;
+                float tol = target * 0.02f; if (tol < 0.3f) tol = 0.3f;
+                const float b = isnan(w) ? NAN : w - aGrams;
+                const int pot = presets[sel].pot;
+                if (pot > 0 && !isnan(b) && b >= target - tol) {
+                    if (!resinPotTimer(presets[sel].name, aGrams + b, pot)) continue;
+                }
+                ph = PH_PREP;         // a new mix needs a new cup and a new TARE
+                lv_obj_clear_flag(prep, LV_OBJ_FLAG_HIDDEN);
             }
         }
 
@@ -8205,8 +8631,9 @@ static void runResinMix(lv_obj_t *backTo) {
         if (ph != PH_B) {             // colours a finished B phase may have left
             lv_obj_set_style_text_color(sub, LVCOL_MUTED, 0);
             lv_obj_set_style_bg_color(bar, lv_color_hex(0x3FC8E4), LV_PART_INDICATOR);
+            lv_obj_set_style_bg_color(nextBtn, LVCOL_ACCENT, 0);
         }
-        if (ph == PH_CUP) {
+        if (ph == PH_PREP) {
             toolSetText(phase, t(I18N_MIX_CUP));
             lv_obj_set_style_text_color(phase, LVCOL_ACCENT, 0);
             snprintf(buf, sizeof buf, isnan(w) ? "-- g" : "%.1f g", w);
@@ -8234,6 +8661,8 @@ static void runResinMix(lv_obj_t *backTo) {
             const float b = isnan(w) ? NAN : w - aGrams;
             // Reached within 2 %, or 0.3 g for a small batch.
             float tol = target * 0.02f; if (tol < 0.3f) tol = 0.3f;
+            const int pot = presets[sel].pot;
+            bool timerReady = false;
             toolSetText(phase, t(I18N_MIX_POUR_B));
             if (isnan(b)) {
                 toolSetText(big, "-- g");
@@ -8247,9 +8676,11 @@ static void runResinMix(lv_obj_t *backTo) {
                 if (b > target + tol) {
                     snprintf(buf, sizeof buf, "%s : +%.1f g", t(I18N_MIX_OVER), b - target);
                     col = LVCOL_RED;
+                    timerReady = pot > 0;
                 } else if (b >= target - tol) {
-                    snprintf(buf, sizeof buf, "%s", t(I18N_MIX_DONE));
+                    snprintf(buf, sizeof buf, "%s", t(pot > 0 ? I18N_MIX_STIR : I18N_MIX_DONE));
                     col = LVCOL_GREEN;
+                    timerReady = pot > 0;
                     if (!beeped) { playBeeps(2000, 80, 2); beeped = true; }
                 } else {
                     snprintf(buf, sizeof buf, "%s : %.1f g", t(I18N_MIX_LEFT), target - b);
@@ -8264,18 +8695,26 @@ static void runResinMix(lv_obj_t *backTo) {
                                               : (b >= target - tol ? LVCOL_GREEN : lv_color_hex(0x3FC8E4)),
                                           LV_PART_INDICATOR);
             }
-            toolSetText(nextLbl, t(I18N_MIX_RESTART));
+            if (timerReady) {
+                snprintf(buf, sizeof buf, t(I18N_MIX_TIMER), pot);
+                toolSetText(nextLbl, buf);
+                lv_obj_set_style_bg_color(nextBtn, LVCOL_GREEN, 0);
+            } else {
+                toolSetText(nextLbl, t(I18N_MIX_RESTART));
+                lv_obj_set_style_bg_color(nextBtn, LVCOL_ACCENT, 0);
+            }
             lv_obj_set_style_text_color(nextLbl, LVCOL_TEXT, 0);
         }
     }
 
-    if (ratioDirty) {
+    if (sel != selAtOpen) {
         prefs.begin("config", false);
-        prefs.putUShort("mixB", (uint16_t)ratioB);
+        prefs.putUChar("mixP", (uint8_t)sel);
         prefs.end();
     }
     lv_scr_load(backTo);
     lv_obj_del(scr);
+    free(presets);
     lvglDrainPress(800);
 }
 
@@ -13885,6 +14324,60 @@ void setupWebServer() {
                 request->send(500, "text/plain", "write failed"); return;
             }
             gPresseChanged = true;
+            request->send(200, "text/plain", "OK");
+        }
+    );
+
+    // Resin mixing presets (§9, runResinMix): same pattern as the heat press
+    // memo's above, reset registered before the save for the same reason.
+    server.on("/resine", HTTP_GET, [](AsyncWebServerRequest *request){
+        AsyncWebServerResponse *r =
+            request->beginResponse_P(200, "text/html; charset=utf-8", RESINE_PAGE);
+        r->addHeader("Cache-Control", "no-store");
+        request->send(r);
+    });
+    server.on("/api/resine/reset", HTTP_POST, [](AsyncWebServerRequest *request){
+        const char *def = resineDefaults();
+        if (!resineWriteFile(def, strlen(def))) {
+            request->send(500, "text/plain", "write failed"); return;
+        }
+        gResineChanged = true;
+        request->send(200, "text/plain", "OK");
+    });
+    server.on("/api/resine", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (LittleFS.exists(RESINE_PATH)) {
+            AsyncWebServerResponse *r = request->beginResponse(LittleFS, RESINE_PATH, "application/json");
+            r->addHeader("Cache-Control", "no-store");
+            request->send(r); return;
+        }
+        request->send(200, "application/json", resineDefaults());
+    });
+    server.on("/api/resine", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
+        [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
+            if (total == 0 || total > RESINE_MAX_BYTES) {
+                if (index == 0) request->send(413, "text/plain", "list too large");
+                return;
+            }
+            // Gathered in PSRAM like the memo's; the request frees _tempObject.
+            if (index == 0) {
+                void *b = heap_caps_malloc(total + 1, MALLOC_CAP_SPIRAM);
+                if (!b) b = malloc(total + 1);
+                request->_tempObject = b;
+                if (!b) { request->send(500, "text/plain", "out of memory"); return; }
+            }
+            char *buf = (char *)request->_tempObject;
+            if (!buf) return;
+            memcpy(buf + index, data, len);
+            if (index + len < total) return;
+            buf[total] = '\0';
+            PresseJsonDocument doc(RESINE_MAX_BYTES * 2);
+            if (deserializeJson(doc, (const char *)buf, total) || !resineValid(doc)) {
+                request->send(400, "text/plain", "invalid list"); return;
+            }
+            if (!resineWriteFile(buf, total)) {
+                request->send(500, "text/plain", "write failed"); return;
+            }
+            gResineChanged = true;
             request->send(200, "text/plain", "OK");
         }
     );

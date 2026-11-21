@@ -230,6 +230,22 @@ The list behind the start menu's heat press memo tool, kept in LittleFS as
 - `temp` 0-250 °C and `time` 0-999 s are clamped on the screen; a time of 0 leaves the timer unavailable.
 - `settings.defaults` is `true` only on the factory list, and is what makes the screen call the values indicative; the editor clears it on save.
 
+### Resin presets
+
+The presets behind the start menu's resin mixing tool, kept in LittleFS as
+`/resine.json` (at most 8 KB). No authentication either.
+
+| Endpoint | Body | Effect |
+|---|---|---|
+| `GET /resine` | — | The preset editor: name, colour, ratio, working time, note, export and import |
+| `GET /api/resine` | — | The presets as JSON (the factory list when none is saved yet) |
+| `POST /api/resine` | the whole list | Replaces it; `400` if it is not an object with a `presets` array. An open mixing screen picks the change up |
+| `POST /api/resine/reset` | none | Puts the factory presets back (indicative values) |
+
+`{"settings":{"defaults":false},"presets":[{"name":"Epoxy casting 2:1","color":"#3B8FE0","a":2,"b":1,"pot":40,"note":""}]}`
+- `a` : `b` is the ratio **by weight**; a preset where either is not above 0 is skipped by the scale.
+- `pot` is the working time in minutes, 0-999; 0 means no timer after the dose.
+
 ### Start menu tools
 
 Which tools the start menu shows, and in which order. Tiger Scale is always shown and always
