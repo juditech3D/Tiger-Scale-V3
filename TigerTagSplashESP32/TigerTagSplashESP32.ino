@@ -23,26 +23,26 @@
 //   CONFIGURATION VARIABLES                               1892- 2325
 //   OLED DISPLAY                                          2326- 3109
 //   CLOUD PARSING                                         3110- 3124
-//   WIFI SETUP                                            3125-10873
-//   LITTLEFS                                             10874-11173
-//   FIREBASE AUTHENTICATION                              11174-12856
-//   WEBSOCKET                                            12857-12883
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12884-13018
-//   UNIFIED WS FRAME BUILDER                             13019-13143
-//   WEIGHT FILTER HELPERS                                13144-13158
-//   POST-SEND STATE RESET (shared by all send paths)     13159-13179
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13180-13283
-//   WEB SERVER                                           13284-14412
-//   CLOUD COMMUNICATION                                  14413-14595
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14596-15103
-//   mDNS                                                 15104-15141
-//   SCALE                                                15142-15312
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15313-15445
-//   RFID                                                 15446-16528
-//   OTA — Over-the-air firmware + filesystem update    16529-17208
-//   LVGL bridge + main weigh screen                      17209-18172
-//   Remote live view: the screen out, taps back in       18173-19022
-//   SETUP & LOOP                                         19023-20311
+//   WIFI SETUP                                            3125-10941
+//   LITTLEFS                                             10942-11241
+//   FIREBASE AUTHENTICATION                              11242-12924
+//   WEBSOCKET                                            12925-12951
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12952-13086
+//   UNIFIED WS FRAME BUILDER                             13087-13211
+//   WEIGHT FILTER HELPERS                                13212-13226
+//   POST-SEND STATE RESET (shared by all send paths)     13227-13247
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13248-13351
+//   WEB SERVER                                           13352-14480
+//   CLOUD COMMUNICATION                                  14481-14663
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14664-15171
+//   mDNS                                                 15172-15209
+//   SCALE                                                15210-15380
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15381-15513
+//   RFID                                                 15514-16596
+//   OTA — Over-the-air firmware + filesystem update    16597-17276
+//   LVGL bridge + main weigh screen                      17277-18240
+//   Remote live view: the screen out, taps back in       18241-19090
+//   SETUP & LOOP                                         19091-20379
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -9375,7 +9375,7 @@ static bool podReadPages(PodReader &p, uint8_t startPage, size_t length, uint8_t
 }
 
 static void runTigerPod(lv_obj_t *backTo) {
-    enum { POD_NONE, POD_BACK };
+    enum { POD_NONE, POD_BACK, POD_RFID };
     static int sAct;
     auto cb = [](lv_event_t *e) { sAct = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e)); };
     sAct = POD_NONE;
@@ -9454,6 +9454,48 @@ static void runTigerPod(lv_obj_t *backTo) {
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_pos(hint, 10, 266);
 
+    // A Bambu Lab spool has a chip on each flange, and Studio saves it only once
+    // both are read (docs/FIRMWARE.md#tigerpod). One reader holding a Bambu chip
+    // while the other sees nothing is, on this hardware, an RF level the weaker
+    // reader cannot work at -- so the bar says so and opens the RFID screen,
+    // whose Auto finds the level. Drawn over the hint, hidden until needed.
+    lv_obj_t *halfBar = lv_obj_create(scr);
+    lv_obj_remove_style_all(halfBar);
+    lv_obj_set_size(halfBar, 460, 50);
+    lv_obj_set_pos(halfBar, 10, 262);
+    lv_obj_set_style_bg_color(halfBar, LVCOL_CARD, 0);
+    lv_obj_set_style_bg_opa(halfBar, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(halfBar, LVCOL_YELLOW, 0);
+    lv_obj_set_style_border_width(halfBar, 2, 0);
+    lv_obj_set_style_radius(halfBar, 12, 0);
+    lv_obj_clear_flag(halfBar, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(halfBar, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_t *halfLbl = lv_label_create(halfBar);
+    lv_label_set_text(halfLbl, t(I18N_POD_BAMBU_HALF));
+    lv_label_set_long_mode(halfLbl, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(halfLbl, 300);
+    lv_obj_set_style_text_font(halfLbl, &gFont16, 0);
+    lv_obj_set_style_text_color(halfLbl, LVCOL_YELLOW, 0);
+    lv_obj_align(halfLbl, LV_ALIGN_LEFT_MID, 12, 0);
+    lv_obj_t *rfidBtn = lv_btn_create(halfBar);
+    lv_obj_set_size(rfidBtn, 130, 36);
+    lv_obj_align(rfidBtn, LV_ALIGN_RIGHT_MID, -7, 0);
+    lv_obj_set_style_bg_color(rfidBtn, LVCOL_BG, 0);
+    lv_obj_set_style_border_color(rfidBtn, LVCOL_YELLOW, 0);
+    lv_obj_set_style_border_width(rfidBtn, 1, 0);
+    lv_obj_set_style_radius(rfidBtn, 10, 0);
+    lv_obj_set_style_shadow_width(rfidBtn, 0, 0);
+    lv_obj_set_user_data(rfidBtn, (void *)(intptr_t)POD_RFID);
+    lv_obj_add_event_cb(rfidBtn, cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *rfidBtnLbl = lv_label_create(rfidBtn);
+    String rfidBtnTxt = String("RFID  ") + t(I18N_RFID_AUTO);
+    lv_label_set_text(rfidBtnLbl, rfidBtnTxt.c_str());
+    lv_obj_set_style_text_font(rfidBtnLbl, &gFont16, 0);
+    lv_obj_set_style_text_color(rfidBtnLbl, LVCOL_YELLOW, 0);
+    lv_obj_center(rfidBtnLbl);
+    uint32_t halfSince = 0;
+    bool halfShown = false;
+
     auto showReader = [&](int i) {
         PodReader &p = readers[i];
         if (p.present) {
@@ -9526,6 +9568,32 @@ static void runTigerPod(lv_obj_t *backTo) {
         wifiKeepAlive();
         toolSleepTick(true, NAN);
         showStatus();
+
+        // The RFID screen, to calibrate; back here when it closes. It drives the
+        // readers itself, so the field is taken again from scratch afterwards.
+        if (sAct == POD_RFID) {
+            sAct = POD_NONE;
+            runHardwareTest();
+            lv_scr_load(scr);
+            fieldOn = -1;
+            lvglDrainPress(800);
+            continue;
+        }
+
+        // One reader holds a Bambu Lab chip, the other nothing, for 2 s -- longer
+        // than the two readers take to answer in turn: its twin is not being read.
+        {
+            const bool half = readers[0].present != readers[1].present
+                && (readers[0].present ? readers[0] : readers[1]).bambuHex.length() > 0;
+            if (!half) halfSince = 0;
+            else if (!halfSince) halfSince = millis();
+            const bool show = halfSince && millis() - halfSince > 2000;
+            if (show != halfShown) {
+                halfShown = show;
+                if (show) lv_obj_clear_flag(halfBar, LV_OBJ_FLAG_HIDDEN);
+                else      lv_obj_add_flag(halfBar, LV_OBJ_FLAG_HIDDEN);
+            }
+        }
 
         // Studio's requests, one at a time.
         PodInMsg in; bool have = false;
