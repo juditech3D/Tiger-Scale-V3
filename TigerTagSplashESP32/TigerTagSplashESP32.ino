@@ -23,26 +23,26 @@
 //   CONFIGURATION VARIABLES                               1842- 2275
 //   OLED DISPLAY                                          2276- 3059
 //   CLOUD PARSING                                         3060- 3074
-//   WIFI SETUP                                            3075-10748
-//   LITTLEFS                                             10749-11048
-//   FIREBASE AUTHENTICATION                              11049-12731
-//   WEBSOCKET                                            12732-12758
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12759-12893
-//   UNIFIED WS FRAME BUILDER                             12894-13018
-//   WEIGHT FILTER HELPERS                                13019-13033
-//   POST-SEND STATE RESET (shared by all send paths)     13034-13054
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13055-13158
-//   WEB SERVER                                           13159-14287
-//   CLOUD COMMUNICATION                                  14288-14470
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14471-14978
-//   mDNS                                                 14979-15016
-//   SCALE                                                15017-15187
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15188-15320
-//   RFID                                                 15321-16403
-//   OTA — Over-the-air firmware + filesystem update    16404-17083
-//   LVGL bridge + main weigh screen                      17084-18047
-//   Remote live view: the screen out, taps back in       18048-18897
-//   SETUP & LOOP                                         18898-20174
+//   WIFI SETUP                                            3075-10820
+//   LITTLEFS                                             10821-11120
+//   FIREBASE AUTHENTICATION                              11121-12803
+//   WEBSOCKET                                            12804-12830
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12831-12965
+//   UNIFIED WS FRAME BUILDER                             12966-13090
+//   WEIGHT FILTER HELPERS                                13091-13105
+//   POST-SEND STATE RESET (shared by all send paths)     13106-13126
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13127-13230
+//   WEB SERVER                                           13231-14359
+//   CLOUD COMMUNICATION                                  14360-14542
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14543-15050
+//   mDNS                                                 15051-15088
+//   SCALE                                                15089-15259
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15260-15392
+//   RFID                                                 15393-16475
+//   OTA — Over-the-air firmware + filesystem update    16476-17155
+//   LVGL bridge + main weigh screen                      17156-18119
+//   Remote live view: the screen out, taps back in       18120-18969
+//   SETUP & LOOP                                         18970-20246
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -7844,22 +7844,24 @@ static void toolSetText(lv_obj_t *l, const char *txt) {
 // ---------------------------------------------------------------------------
 // Parts counter
 // ---------------------------------------------------------------------------
-// A step-by-step wizard, because a count is only as good as its reference:
-//   1. empty counting tray on, TARE;
-//   2. N reference parts in (1 to 100, chosen on the screen), Confirm;
-//   3. check: N more parts in, the scale should show 2N. "Correct" re-takes the
+// A step-by-step wizard, because a count is only as good as its reference.
+// On opening, a card asks for the empty counting tray (the resin tool's
+// "before you start" card); confirming it tares, so the wizard starts on:
+//   1. N reference parts in (1 to 100, chosen on the screen), Confirm;
+//   2. check: N more parts in, the scale should show 2N. "Correct" re-takes the
 //      part weight over all 2N parts -- twice the reference for free -- and
-//      "Redo" goes back to step 2;
-//   4. count.
-// The part weight is kept (NVS config/cntUnit): next time, with the same parts,
-// "Same parts" at step 2 goes straight to counting.
+//      "Redo" goes back to step 1;
+//   3. count.
+// TARE stays on screen as a plain re-zero. The part weight is kept (NVS
+// config/cntUnit): next time, with the same parts, "Same parts" at step 1 goes
+// straight to counting.
 //
 // A reference under 10 g puts the load cell's ~1 g noise on every part; the
 // screen says to take more parts.
 static const uint16_t kCountSamples[] = { 1, 2, 5, 10, 20, 50, 100 };
 
 static void runPartsCounter(lv_obj_t *backTo) {
-    enum { CA_NONE, CA_BACK, CA_TARE, CA_MINUS, CA_PLUS, CA_OK, CA_SAME, CA_REDO, CA_GO, CA_NEWREF };
+    enum { CA_NONE, CA_BACK, CA_TARE, CA_MINUS, CA_PLUS, CA_OK, CA_SAME, CA_REDO, CA_GO, CA_NEWREF, CA_READY };
     static int sAct;
     auto cb = [](lv_event_t *e) {
         sAct = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
@@ -7874,7 +7876,7 @@ static void runPartsCounter(lv_obj_t *backTo) {
     if (si >= NS) si = 0;
     if (!(saved > 0.0f)) saved = 0.0f;
 
-    enum { ST_TRAY, ST_REF, ST_CHECK, ST_COUNT } st = ST_TRAY;
+    enum { ST_REF, ST_CHECK, ST_COUNT } st = ST_REF;
     float unit = 0.0f;
     bool lightRef = false;
 
@@ -7910,12 +7912,80 @@ static void runPartsCounter(lv_obj_t *backTo) {
     lv_obj_set_style_text_align(nCap, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_pos(nCap, 126, 228);
     lv_obj_t *okB   = toolButton(scr, 308, 248, 164, 64, t(I18N_CNT_VALIDATE), LVCOL_ACCENT, cb, CA_OK);
-    lv_obj_t *sameB = toolButton(scr, 308, 196, 164, 44, t(I18N_CNT_SAME), LVCOL_CARD, cb, CA_SAME);
+    lv_obj_t *sameB = toolButton(scr, 308, 192, 164, 50, t(I18N_CNT_SAME), LVCOL_CARD, cb, CA_SAME);
+    {   // "Same parts as the last weighing": two lines, smaller type
+        lv_obj_t *sl = lv_obj_get_child(sameB, 0);
+        lv_label_set_long_mode(sl, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(sl, 150);
+        lv_obj_set_style_text_align(sl, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_font(sl, &gFont14, 0);
+        lv_obj_center(sl);
+    }
     // Step 3.
     lv_obj_t *redoB = toolButton(scr, 126, 248, 172, 64, t(I18N_CNT_REDO), LVCOL_CARD, cb, CA_REDO);
     lv_obj_t *goB   = toolButton(scr, 308, 248, 164, 64, t(I18N_CNT_GO), LVCOL_GREEN, cb, CA_GO);
     // Step 4.
     lv_obj_t *newB  = toolButton(scr, 308, 248, 164, 64, t(I18N_CNT_REF), LVCOL_CARD, cb, CA_NEWREF);
+
+    // The "before you start" card, over everything, laid out as the resin
+    // tool's. Its dim backdrop is clickable so a touch beside the card does
+    // not reach the screen below.
+    lv_obj_t *prep = lv_obj_create(scr);
+    lv_obj_remove_style_all(prep);
+    lv_obj_set_size(prep, 480, 320);
+    lv_obj_set_pos(prep, 0, 0);
+    lv_obj_set_style_bg_color(prep, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(prep, LV_OPA_60, 0);
+    lv_obj_add_flag(prep, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(prep, LV_OBJ_FLAG_SCROLLABLE);
+    {
+        lv_obj_t *card = lv_obj_create(prep);
+        lv_obj_set_size(card, 400, 264);
+        lv_obj_set_pos(card, 40, 28);
+        lv_obj_set_style_bg_color(card, LVCOL_CARD, 0);
+        lv_obj_set_style_border_color(card, LVCOL_BORDER, 0);
+        lv_obj_set_style_border_width(card, 1, 0);
+        lv_obj_set_style_radius(card, 16, 0);
+        lv_obj_set_style_pad_all(card, 0, 0);
+        lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t *ttl = lv_label_create(card);
+        lv_label_set_text(ttl, t(I18N_CNT_PREP_TITLE));
+        lv_obj_set_style_text_font(ttl, &gFont20, 0);
+        lv_obj_set_style_text_color(ttl, LVCOL_TEXT, 0);
+        lv_obj_set_pos(ttl, 18, 14);
+        const LangKey steps[3] = { I18N_CNT_PREP_1, I18N_CNT_PREP_2, I18N_CNT_PREP_3 };
+        for (int i = 0; i < 3; i++) {
+            lv_obj_t *num = lv_obj_create(card);
+            lv_obj_remove_style_all(num);
+            lv_obj_set_size(num, 26, 26);
+            lv_obj_set_pos(num, 18, 52 + i * 36);
+            lv_obj_set_style_radius(num, LV_RADIUS_CIRCLE, 0);
+            lv_obj_set_style_bg_color(num, lv_color_hex(0x9B59B6), 0);   // the tool's menu colour
+            lv_obj_set_style_bg_opa(num, LV_OPA_COVER, 0);
+            lv_obj_t *nl = lv_label_create(num);
+            char d[2] = { (char)('1' + i), '\0' };
+            lv_label_set_text(nl, d);
+            lv_obj_set_style_text_font(nl, &gFont14, 0);
+            lv_obj_set_style_text_color(nl, LVCOL_BG, 0);
+            lv_obj_center(nl);
+            lv_obj_t *sl = lv_label_create(card);
+            lv_label_set_text(sl, t(steps[i]));
+            lv_label_set_long_mode(sl, LV_LABEL_LONG_DOT);
+            lv_obj_set_width(sl, 336);
+            lv_obj_set_style_text_font(sl, &gFont16, 0);
+            lv_obj_set_style_text_color(sl, LVCOL_TEXT, 0);
+            lv_obj_set_pos(sl, 54, 55 + i * 36);
+        }
+        lv_obj_t *hint = lv_label_create(card);
+        lv_label_set_text(hint, t(I18N_CNT_PREP_HINT));
+        lv_label_set_long_mode(hint, LV_LABEL_LONG_DOT);
+        lv_obj_set_width(hint, 364);
+        lv_obj_set_style_text_font(hint, &gFont14, 0);
+        lv_obj_set_style_text_color(hint, LVCOL_MUTED, 0);
+        lv_obj_set_pos(hint, 18, 164);
+        toolButton(card, 16, 196, 120, 52, t(I18N_CANCEL), LVCOL_BG, cb, CA_BACK);
+        toolButton(card, 146, 196, 236, 52, t(I18N_CNT_PREP_OK), LVCOL_GREEN, cb, CA_READY);
+    }
 
     auto vis = [](lv_obj_t *o, bool on) {
         if (on) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
@@ -7932,10 +8002,9 @@ static void runPartsCounter(lv_obj_t *backTo) {
         vis(newB, st == ST_COUNT);
         char b[48];
         if (st == ST_COUNT) b[0] = '\0';
-        else snprintf(b, sizeof b, t(I18N_STEP_OF), (int)st + 1, 3);
+        else snprintf(b, sizeof b, t(I18N_STEP_OF), (int)st + 1, 2);
         lv_label_set_text(stepL, b);
-        if (st == ST_TRAY)       lv_label_set_text(instr, t(I18N_CNT_TRAY));
-        else if (st == ST_REF)   lv_label_set_text(instr, t(I18N_CNT_HINT));
+        if (st == ST_REF)        lv_label_set_text(instr, t(I18N_CNT_HINT));
         else if (st == ST_CHECK) {
             char c[160];
             snprintf(c, sizeof c, t(I18N_CNT_CHECK), (unsigned)kCountSamples[si], (unsigned)(2 * kCountSamples[si]));
@@ -7960,12 +8029,15 @@ static void runPartsCounter(lv_obj_t *backTo) {
         if (a == CA_BACK) break;
         if (a != CA_NONE) sAct = CA_NONE;
         bool relayout = true;
-        if (a == CA_TARE) {
-            lv_obj_add_state(tareBtn, LV_STATE_DISABLED);
+        if (a == CA_TARE || a == CA_READY) {
+            // The card's confirm tares with the tray on and closes it; the
+            // TARE button afterwards is a re-zero, nothing more.
+            lv_obj_t *busy = a == CA_TARE ? tareBtn : nullptr;
+            if (busy) lv_obj_add_state(busy, LV_STATE_DISABLED);
             lv_timer_handler();
             toolTare();
-            lv_obj_clear_state(tareBtn, LV_STATE_DISABLED);
-            if (st == ST_TRAY) st = ST_REF;   // later steps: a re-zero, nothing more
+            if (busy) lv_obj_clear_state(busy, LV_STATE_DISABLED);
+            lv_obj_add_flag(prep, LV_OBJ_FLAG_HIDDEN);
             lvglDrainPress(600);
         } else if (a == CA_MINUS && si > 0) {
             si--; showN();
@@ -8012,7 +8084,7 @@ static void runPartsCounter(lv_obj_t *backTo) {
             toolSetText(info, "");
             continue;
         }
-        if (st == ST_TRAY || st == ST_REF) {
+        if (st == ST_REF) {
             snprintf(buf, sizeof buf, "%.1f g", w);
             toolSetText(big, buf);
             lv_obj_set_style_text_color(big, gIsStable ? LVCOL_TEXT : LVCOL_MUTED, 0);
