@@ -50,6 +50,8 @@ log lives in git history and the synthesised entry lives in the changelog.
   categories (Sublimation, DTF, HTV, Flock, Rhinestones, Transfer paper),
   from Siser, Sawgrass, Brother and DTF supplier sheets. Written only on a
   scale with no list yet (`presse_page.h` `PRESSE_DEFAULTS_EN` / `_FR`).
+- The memo's editor address is drawn in white on its screens, like the other
+  tools' configuration links (`runPresseMemo`, `presseEmptyNote`).
 - The `/presse` editor is restyled and gains the background panel with a
   live preview, a product count per category, and the peel values "Hot or
   cold" and "See sheet" (`presse_page.h`).

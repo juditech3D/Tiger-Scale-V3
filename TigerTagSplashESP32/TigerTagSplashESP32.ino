@@ -8907,7 +8907,7 @@ static void presseEmptyNote(lv_obj_t *scr) {
     lv_obj_center(col);
     lvglAddCenteredLabel(col, t(I18N_PR_EMPTY), LVCOL_MUTED, &gFont16);
     String url = presseEditUrl();
-    if (url.length()) lvglAddCenteredLabel(col, url, LVCOL_ACCENT, &gFont16);
+    if (url.length()) lvglAddCenteredLabel(col, url, LVCOL_TEXT, &gFont16);
     else              lvglAddCenteredLabel(col, t(I18N_NO_WIFI), LVCOL_RED, &gFont16);
 }
 
@@ -9032,7 +9032,7 @@ static void runPresseMemo(lv_obj_t *backTo) {
                 if (url.length()) {
                     lv_obj_t *u = lv_label_create(scr);
                     lv_label_set_text(u, url.c_str());
-                    lv_obj_set_style_text_color(u, LVCOL_MUTED, 0);
+                    lv_obj_set_style_text_color(u, LVCOL_TEXT, 0);
                     lv_obj_set_style_text_font(u, &gFont14, 0);
                     lv_obj_set_width(u, 460);
                     lv_obj_set_style_text_align(u, LV_TEXT_ALIGN_CENTER, 0);
