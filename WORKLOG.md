@@ -25,9 +25,13 @@ log lives in git history and the synthesised entry lives in the changelog.
   scale's keyboard; ready-made times (8 built in) in NVS `timers`/`list`, edited
   from `/minuterie` (`timer_page.h`, `GET/POST /api/timers`,
   `POST /api/timers/reset`) or grown with "Keep" on the manual screen; a
-  finished timer rings and blinks in its own slot (OK / +1:00); leaving stops
-  every timer and frees the tool's state. `tsKeyboard()` gains optional
-  `backTo`, `initial` and `maxLen`. 18 i18n keys (`I18N_TOOL_TIMER`,
+  chosen time only sets a slot up: each slot starts with its play button and
+  stops with its square (back to its full time), the cross empties a slot
+  that is not running; the slots' set-ups are kept in NVS `timers`/`slots`, so
+  the tool reopens on the same timers, ready and not running. A finished timer
+  rings and blinks in its own slot (OK puts it back ready, +1:00 runs one more
+  minute); leaving stops every timer and frees the tool's state. `tsKeyboard()` gains optional
+  `backTo`, `initial` and `maxLen`. 19 i18n keys (`I18N_TOOL_TIMER`,
   `I18N_TOOL_TIMER_SUB`, `I18N_TMR_*`), CJK faces regenerated,
   `web-installer/tools.js` entry, README tool list.
 

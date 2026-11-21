@@ -23,26 +23,26 @@
 //   CONFIGURATION VARIABLES                               1894- 2327
 //   OLED DISPLAY                                          2328- 3111
 //   CLOUD PARSING                                         3112- 3126
-//   WIFI SETUP                                            3127-11540
-//   LITTLEFS                                             11541-11840
-//   FIREBASE AUTHENTICATION                              11841-13523
-//   WEBSOCKET                                            13524-13550
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 13551-13685
-//   UNIFIED WS FRAME BUILDER                             13686-13810
-//   WEIGHT FILTER HELPERS                                13811-13825
-//   POST-SEND STATE RESET (shared by all send paths)     13826-13846
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13847-13950
-//   WEB SERVER                                           13951-15124
-//   CLOUD COMMUNICATION                                  15125-15307
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 15308-15815
-//   mDNS                                                 15816-15853
-//   SCALE                                                15854-16024
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  16025-16157
-//   RFID                                                 16158-17240
-//   OTA — Over-the-air firmware + filesystem update    17241-17920
-//   LVGL bridge + main weigh screen                      17921-18884
-//   Remote live view: the screen out, taps back in       18885-19734
-//   SETUP & LOOP                                         19735-21023
+//   WIFI SETUP                                            3127-11609
+//   LITTLEFS                                             11610-11909
+//   FIREBASE AUTHENTICATION                              11910-13592
+//   WEBSOCKET                                            13593-13619
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 13620-13754
+//   UNIFIED WS FRAME BUILDER                             13755-13879
+//   WEIGHT FILTER HELPERS                                13880-13894
+//   POST-SEND STATE RESET (shared by all send paths)     13895-13915
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13916-14019
+//   WEB SERVER                                           14020-15193
+//   CLOUD COMMUNICATION                                  15194-15376
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 15377-15884
+//   mDNS                                                 15885-15922
+//   SCALE                                                15923-16093
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  16094-16226
+//   RFID                                                 16227-17309
+//   OTA — Over-the-air firmware + filesystem update    17310-17989
+//   LVGL bridge + main weigh screen                      17990-18953
+//   Remote live view: the screen out, taps back in       18954-19803
+//   SETUP & LOOP                                         19804-21092
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -9809,14 +9809,68 @@ static uint32_t timerElapsedMs(const TimerSlot &s, uint32_t now) {
     return s.state == TMS_RUN ? s.accMs + (now - s.markMs) : s.accMs;
 }
 
-static void timerStart(int i, uint32_t sec, bool chrono, const char *name) {
+// Back to its starting point, not running: the full time, or 00:00 for a stopwatch.
+static void timerReset(TimerSlot &s) {
+    s.accMs = s.chrono ? 0 : s.totalMs;
+    s.state = TMS_READY;
+}
+
+// The slots' set-ups (not their progress) outlive the tool, so it opens on the
+// same timers, ready to start: NVS "timers"/"slots", one line per slot,
+// "chrono<TAB>seconds<TAB>name", an empty line for an empty slot.
+static void timerSaveSlots() {
+    String txt;
+    for (int i = 0; i < TMR_SLOTS; i++) {
+        const TimerSlot &s = gTmr->slot[i];
+        if (s.state != TMS_EMPTY) {
+            txt += s.chrono ? '1' : '0'; txt += '\t';
+            txt += String(s.totalMs / 1000); txt += '\t';
+            txt += s.name;
+        }
+        txt += '\n';
+    }
+    Preferences p;
+    p.begin("timers", false);
+    p.putString("slots", txt);
+    p.end();
+}
+
+static void timerLoadSlots() {
+    Preferences p;
+    p.begin("timers", true);
+    String txt = p.getString("slots", "");
+    p.end();
+    const char *c = txt.c_str();
+    for (int i = 0; i < TMR_SLOTS && *c; i++) {
+        const char *eol = strchr(c, '\n');
+        size_t len = eol ? (size_t)(eol - c) : strlen(c);
+        TimerSlot &s = gTmr->slot[i];
+        char *end = nullptr;
+        if (len >= 3 && (c[0] == '0' || c[0] == '1') && c[1] == '\t') {
+            unsigned long sec = strtoul(c + 2, &end, 10);
+            bool chrono = c[0] == '1';
+            if (end && (chrono || (sec >= 1 && sec <= TMR_MAX_SEC))) {
+                s.chrono  = chrono;
+                s.totalMs = chrono ? 0 : (uint32_t)sec * 1000u;
+                s.name[0] = '\0';
+                size_t used = (size_t)(end - c);
+                if (used < len && *end == '\t') timerCopyName(s.name, end + 1, len - used - 1);
+                timerReset(s);
+            }
+        }
+        if (!eol) break;
+        c = eol + 1;
+    }
+}
+
+// Sets a slot up with a time and a name, ready to start. It does not run until ▶.
+static void timerSetup(int i, uint32_t sec, bool chrono, const char *name) {
     TimerSlot &s = gTmr->slot[i];
     s.chrono  = chrono;
     s.totalMs = sec * 1000u;
-    s.accMs   = chrono ? 0 : s.totalMs;
-    s.markMs  = millis();
-    s.state   = TMS_RUN;
     timerCopyName(s.name, name ? name : "", name ? strlen(name) : 0);
+    timerReset(s);
+    timerSaveSlots();
 }
 
 // Once per pass of every loop the tool runs (main screen and its sub-screens):
@@ -9928,6 +9982,7 @@ static void timerBuildSlot(lv_obj_t *scr, int i) {
     s.pauseB = toolButton(s.card, 8, 196, 62, 50, LV_SYMBOL_PAUSE, LVCOL_ORANGE, timerCb, TMR_UD(TA_PAUSE, i));
     s.pauseL = lv_obj_get_child(s.pauseB, 0);
     s.stopB  = toolButton(s.card, 78, 196, 62, 50, LV_SYMBOL_CLOSE, LVCOL_BG, timerCb, TMR_UD(TA_STOP, i));
+    s.stopL  = lv_obj_get_child(s.stopB, 0);
 
     // Empty: a "+" and the invitation. Plain children, so the tap reaches the card.
     s.addBox = lv_obj_create(s.card);
@@ -9968,7 +10023,7 @@ static void timerBuildSlot(lv_obj_t *scr, int i) {
 static void timerPaintSlot(int i, uint32_t now) {
     TimerSlot &s = gTmr->slot[i];
     lv_color_t col = lv_color_hex(kTimerColors[i]);
-    bool active = s.state == TMS_RUN || s.state == TMS_PAUSE;
+    bool active = s.state == TMS_READY || s.state == TMS_RUN || s.state == TMS_PAUSE;
 
     if (s.state != s.shownState) {
         s.shownState = s.state;
@@ -9986,11 +10041,15 @@ static void timerPaintSlot(int i, uint32_t now) {
         lv_obj_set_style_bg_color(s.card, LVCOL_CARD, 0);
         s.shownBlink = false;
         if (active) {
-            bool run = s.state == TMS_RUN;
-            toolSetText(s.stateL, t(run ? I18N_TMR_RUNNING : I18N_TMR_PAUSED));
-            lv_obj_set_style_text_color(s.stateL, run ? LVCOL_GREEN : LVCOL_YELLOW, 0);
+            bool run = s.state == TMS_RUN, ready = s.state == TMS_READY;
+            toolSetText(s.stateL, t(ready ? I18N_TMR_READY : run ? I18N_TMR_RUNNING : I18N_TMR_PAUSED));
+            lv_obj_set_style_text_color(s.stateL, ready ? LVCOL_MUTED : run ? LVCOL_GREEN : LVCOL_YELLOW, 0);
             toolSetText(s.pauseL, run ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
             lv_obj_set_style_bg_color(s.pauseB, run ? LVCOL_ORANGE : LVCOL_GREEN, 0);
+            // Ready: the cross clears the slot. Started: the square stops it,
+            // back to its full time, ready to start again.
+            toolSetText(s.stopL, ready ? LV_SYMBOL_CLOSE : LV_SYMBOL_STOP);
+            lv_obj_set_style_bg_color(s.stopB, ready ? LVCOL_BG : LVCOL_RED, 0);
         }
         if (s.state == TMS_DONE) {
             char b[16]; timerFmt(s.totalMs / 1000, b, sizeof b);
@@ -10089,7 +10148,7 @@ static bool timerManual(int slotIdx, lv_obj_t *backTo) {
         snprintf(b, sizeof b, "%02d", sc); toolSetText(val[2], b);
         uint32_t s = h * 3600 + m * 60 + sc;
         char d[16]; timerFmt(s, d, sizeof d);
-        snprintf(b, sizeof b, LV_SYMBOL_PLAY "  %s", d);
+        snprintf(b, sizeof b, LV_SYMBOL_OK "  %s", d);
         toolSetText(goL, b);
         if (s == 0) lv_obj_add_state(goB, LV_STATE_DISABLED); else lv_obj_clear_state(goB, LV_STATE_DISABLED);
         char kb[48];
@@ -10149,7 +10208,7 @@ static bool timerManual(int slotIdx, lv_obj_t *backTo) {
                 w.begin("timers", false);
                 w.putUInt("manual", s);
                 w.end();
-                timerStart(slotIdx, s, false, name);
+                timerSetup(slotIdx, s, false, name);
                 started = true;
                 break;
             }
@@ -10257,9 +10316,9 @@ static void timerAdd(int slotIdx, lv_obj_t *backTo) {
         switch (a) {
             case TA_BACK:   done = true; break;
             case TA_PRESET:
-                if (arg < n) { timerStart(slotIdx, list[arg].sec, false, list[arg].name); done = true; }
+                if (arg < n) { timerSetup(slotIdx, list[arg].sec, false, list[arg].name); done = true; }
                 break;
-            case TA_CHRONO: timerStart(slotIdx, 0, true, ""); done = true; break;
+            case TA_CHRONO: timerSetup(slotIdx, 0, true, ""); done = true; break;
             case TA_MANUAL: done = timerManual(slotIdx, scr); break;
         }
     }
@@ -10273,6 +10332,7 @@ static void runTimers(lv_obj_t *backTo) {
     gTmr = new (std::nothrow) TimerTool();
     if (!gTmr) { Serial.println("[TMR] out of memory"); return; }
     for (int i = 0; i < TMR_SLOTS; i++) gTmr->slot[i].state = TMS_EMPTY;
+    timerLoadSlots();
 
     // The list's page is served by the async server; opening the tool straight
     // from the start menu can come before loop() has started it.
@@ -10305,7 +10365,7 @@ static void runTimers(lv_obj_t *backTo) {
             sTmrAct = TA_NONE;
             if (a == TA_BACK) {
                 bool busy = false;
-                for (int k = 0; k < TMR_SLOTS; k++) busy |= gTmr->slot[k].state != TMS_EMPTY;
+                for (int k = 0; k < TMR_SLOTS; k++) busy |= gTmr->slot[k].state > TMS_READY;
                 if (!busy || lvglAskYesNo(t(I18N_TMR_QUIT), t(I18N_TMR_QUIT_SUB))) break;
                 continue;
             }
@@ -10319,20 +10379,29 @@ static void runTimers(lv_obj_t *backTo) {
                     if (s.state == TMS_RUN) {
                         s.accMs = s.chrono ? timerElapsedMs(s, now) : timerLeftMs(s, now);
                         s.state = TMS_PAUSE;
-                    } else if (s.state == TMS_PAUSE) {
+                    } else if (s.state == TMS_PAUSE || s.state == TMS_READY) {
                         s.markMs = now;
                         s.state = TMS_RUN;
                     }
                     break;
                 case TA_STOP:
+                    if (s.state == TMS_READY) {          // the cross: the slot is emptied
+                        s.state = TMS_EMPTY;
+                        s.name[0] = '\0';
+                        timerSaveSlots();
+                    } else {                             // the square: back to the start
+                        timerReset(s);
+                    }
+                    break;
                 case TA_OK:
-                    s.state = TMS_EMPTY;
-                    s.name[0] = '\0';
+                    timerReset(s);
                     break;
                 case TA_PLUS1:
+                    // One more minute, straight away; then back to its own time.
                     if (s.state == TMS_DONE) {
-                        char keep[TMR_NAME_BYTES]; strcpy(keep, s.name);
-                        timerStart(i, 60, false, keep);
+                        s.accMs = 60000u;
+                        s.markMs = now;
+                        s.state = TMS_RUN;
                     }
                     break;
             }

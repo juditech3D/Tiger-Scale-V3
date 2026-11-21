@@ -20,7 +20,9 @@
 
 struct TimerPreset { uint32_t sec; char name[TMR_NAME_BYTES]; };
 
-enum { TMS_EMPTY, TMS_RUN, TMS_PAUSE, TMS_DONE };
+// READY: set up (a time and a name) but not started -- what every slot is
+// when the tool opens, and what Stop and OK bring a timer back to.
+enum { TMS_EMPTY, TMS_READY, TMS_RUN, TMS_PAUSE, TMS_DONE };
 
 struct TimerSlot {
     uint8_t  state;
@@ -31,7 +33,7 @@ struct TimerSlot {
     uint32_t doneAtMs, lastBeepMs;
     char     name[TMR_NAME_BYTES];
     // widgets
-    lv_obj_t *card, *nameL, *ring, *timeL, *subL, *stateL, *pauseB, *pauseL, *stopB;
+    lv_obj_t *card, *nameL, *ring, *timeL, *subL, *stateL, *pauseB, *pauseL, *stopB, *stopL;
     lv_obj_t *addBox, *doneBox, *doneTotalL;
     uint8_t  shownState;
     bool     shownBlink;

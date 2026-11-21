@@ -33,26 +33,26 @@ the source, so this table cannot silently disagree with the file.
 | 6 | Configuration variables | 1894–2327 |
 | 7 | Display / weigh rendering | 2328–3111 |
 | 8 | Cloud parsing | 3112–3126 |
-| 9 | WiFi setup + every touch/LVGL settings screen | 3127–11540 |
-| 10 | LittleFS | 11541–11840 |
-| 11 | Firebase authentication + Firestore | 11841–13523 |
-| 13 | WebSocket | 13524–13550 |
-| 14 | Cloud worker task (core 0) | 13551–13685 |
-| 15 | Unified WS frame builder | 13686–13810 |
-| 16 | Weight filter helpers | 13811–13825 |
-| 17 | Post-send state reset | 13826–13846 |
-| 18 | Shared weight push handler | 13847–13950 |
-| 19 | Web server (all HTTP routes) | 13951–15124 |
-| 20 | Cloud communication | 15125–15307 |
-| 21 | Weigh workflow state machine | 15308–15815 |
-| 22 | mDNS | 15816–15853 |
-| 23 | Scale (HX711 init, filtering, calibration) | 15854–16024 |
-| AUDIO | ES8311 codec beep (I2S slave, I2C 0x18) | 16025–16157 |
-| 24 | RFID (PN532 via `PN532Reader`, tag reading) | 16158–17240 |
-| 25 | OTA (firmware + filesystem update) | 17241–17920 |
-| LVGL | LVGL bridge + main weigh screen | 17921–18884 |
-| LIVE | Remote live view: the screen out, taps back in | 18885–19734 |
-| 26 | `setup()` + `loop()` | 19735–21023 |
+| 9 | WiFi setup + every touch/LVGL settings screen | 3127–11609 |
+| 10 | LittleFS | 11610–11909 |
+| 11 | Firebase authentication + Firestore | 11910–13592 |
+| 13 | WebSocket | 13593–13619 |
+| 14 | Cloud worker task (core 0) | 13620–13754 |
+| 15 | Unified WS frame builder | 13755–13879 |
+| 16 | Weight filter helpers | 13880–13894 |
+| 17 | Post-send state reset | 13895–13915 |
+| 18 | Shared weight push handler | 13916–14019 |
+| 19 | Web server (all HTTP routes) | 14020–15193 |
+| 20 | Cloud communication | 15194–15376 |
+| 21 | Weigh workflow state machine | 15377–15884 |
+| 22 | mDNS | 15885–15922 |
+| 23 | Scale (HX711 init, filtering, calibration) | 15923–16093 |
+| AUDIO | ES8311 codec beep (I2S slave, I2C 0x18) | 16094–16226 |
+| 24 | RFID (PN532 via `PN532Reader`, tag reading) | 16227–17309 |
+| 25 | OTA (firmware + filesystem update) | 17310–17989 |
+| LVGL | LVGL bridge + main weigh screen | 17990–18953 |
+| LIVE | Remote live view: the screen out, taps back in | 18954–19803 |
+| 26 | `setup()` + `loop()` | 19804–21092 |
 
 Two gaps and two oddities in that numbering, all deliberate:
 
@@ -91,48 +91,48 @@ Two gaps and two oddities in that numbering, all deliberate:
 | `runHardwareTest` | 5338 | §9 |
 | `lvglAskYesNo` | 5918 | §9 |
 | `runOtaMenu` | 7340 | §9 |
-| `runTimers` | 10272 | §9 |
-| `runSettingsMenu` | 10855 | §9 |
-| `setupWiFi` | 11435 | §9 |
-| `setupFileSystem` | 11655 | §10 |
-| `firebaseSignIn` | 11852 | §11 |
-| `fetchApiKeyFromFirestore` | 11938 | §11 |
-| `syncClockFromFirestore` | 12096 | §11 |
-| `readInventoryContainerWeight` | 12509 | §11 |
-| `pushLatestEventToFirestore` | 13210 | §11 |
-| `buildWsFrame` | 13693 | §15 |
-| `resetWeightFilters` | 13814 | §16 |
-| `resetAfterSuccessfulSend` | 13829 | §17 |
-| `handleWeightPushBody` | 13850 | §18 |
-| `setupWebServer` | 13955 | §19 |
-| `sendSingleUidToCloud` | 15128 | §20 |
-| `parseCloudSpoolMeta` | 15184 | §20 |
-| `pushWeightToCloud` | 15234 | §20 |
-| `fetchMetaFromApiByUid` | 15272 | §20 |
-| `handleWeighWorkflow` | 15361 | §21 |
-| `startMDNS` | 15819 | §22 |
-| `setupScale` | 15857 | §23 |
-| `isRapidChange` | 15888 | §23 |
-| `readWeight` | 15924 | §23 |
-| `playSoundTheme` | 16135 | §AUDIO |
-| `rfidSelectReader` | 16311 | §24 |
-| `normalizeRfidHwConfig` | 16365 | §24 |
-| `setupRFID` | 16375 | §24 |
-| `setupServo` | 16591 | §24 |
-| `processAutoTare` | 16605 | §24 |
-| `fetchMetaFromFirestore` | 16925 | §24 |
-| `readTigerTagMetadata` | 17027 | §24 |
-| `pollRFIDReader` | 17116 | §24 |
-| `recoverRFIDReaderIfNeeded` | 17199 | §24 |
-| `isDuplicateRecentUid` | 17219 | §24 |
-| `isUidLatched` | 17223 | §24 |
-| `finishRfidSession` | 17235 | §24 |
-| `otaApply` | 17428 | §25 |
-| `otaFetchLatest` | 17570 | §25 |
-| `lvglBuildMainScreen` | 18199 | §LVGL |
-| `lvglUpdateMainScreen` | 18627 | §LVGL |
-| `setup` | 19754 | §26 |
-| `loop` | 19972 | §26 |
+| `runTimers` | 10331 | §9 |
+| `runSettingsMenu` | 10924 | §9 |
+| `setupWiFi` | 11504 | §9 |
+| `setupFileSystem` | 11724 | §10 |
+| `firebaseSignIn` | 11921 | §11 |
+| `fetchApiKeyFromFirestore` | 12007 | §11 |
+| `syncClockFromFirestore` | 12165 | §11 |
+| `readInventoryContainerWeight` | 12578 | §11 |
+| `pushLatestEventToFirestore` | 13279 | §11 |
+| `buildWsFrame` | 13762 | §15 |
+| `resetWeightFilters` | 13883 | §16 |
+| `resetAfterSuccessfulSend` | 13898 | §17 |
+| `handleWeightPushBody` | 13919 | §18 |
+| `setupWebServer` | 14024 | §19 |
+| `sendSingleUidToCloud` | 15197 | §20 |
+| `parseCloudSpoolMeta` | 15253 | §20 |
+| `pushWeightToCloud` | 15303 | §20 |
+| `fetchMetaFromApiByUid` | 15341 | §20 |
+| `handleWeighWorkflow` | 15430 | §21 |
+| `startMDNS` | 15888 | §22 |
+| `setupScale` | 15926 | §23 |
+| `isRapidChange` | 15957 | §23 |
+| `readWeight` | 15993 | §23 |
+| `playSoundTheme` | 16204 | §AUDIO |
+| `rfidSelectReader` | 16380 | §24 |
+| `normalizeRfidHwConfig` | 16434 | §24 |
+| `setupRFID` | 16444 | §24 |
+| `setupServo` | 16660 | §24 |
+| `processAutoTare` | 16674 | §24 |
+| `fetchMetaFromFirestore` | 16994 | §24 |
+| `readTigerTagMetadata` | 17096 | §24 |
+| `pollRFIDReader` | 17185 | §24 |
+| `recoverRFIDReaderIfNeeded` | 17268 | §24 |
+| `isDuplicateRecentUid` | 17288 | §24 |
+| `isUidLatched` | 17292 | §24 |
+| `finishRfidSession` | 17304 | §24 |
+| `otaApply` | 17497 | §25 |
+| `otaFetchLatest` | 17639 | §25 |
+| `lvglBuildMainScreen` | 18268 | §LVGL |
+| `lvglUpdateMainScreen` | 18696 | §LVGL |
+| `setup` | 19823 | §26 |
+| `loop` | 20041 | §26 |
 
 ## Landmines — read the note before editing these
 
