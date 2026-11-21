@@ -18,6 +18,18 @@ log lives in git history and the synthesised entry lives in the changelog.
 
 ---
 
+### Added
+
+- Connected parcel scale. The firmware serves `/colis` (`colis_page.h`), the
+  weight live with Copy and Tare, and `GET /api/parcel` (`gParcelOpen` set by
+  `runParcelScale`). The optional Windows tray program `tools/connector/`
+  (`TigerScaleConnector.cs`, `build.cmd`, README) serves that same page at
+  `http://127.0.0.1:47800/`, relays the scale's endpoints, and types the weight
+  into the active field or a named running program (manual or automatic, once
+  per parcel). `.github/workflows/connector.yml` builds it with the compiler
+  built into Windows and attaches the `.exe` to each `v*` release.
+  `docs/API.md` documents both endpoints.
+
 ### Fixed
 
 - The Pages deployment no longer fails on an anonymous GitHub API rate limit:

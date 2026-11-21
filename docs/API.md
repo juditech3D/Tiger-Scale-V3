@@ -214,6 +214,21 @@ All of these are `POST`. Bodies are JSON unless noted.
 The two destructive ones take no confirmation and no authentication. Anything
 that exposes them in a UI should confirm on its own side.
 
+### Parcel scale
+
+The start menu's parcel scale tool from a browser. No authentication, like
+everything here.
+
+| Endpoint | Body | Effect |
+|---|---|---|
+| `GET /colis` | — | The weight live, with Copy and Tare. Served by the [software connector](../tools/connector/README.md) at `http://127.0.0.1:47800/`, the same page also pastes the weight into another program |
+| `GET /api/parcel` | — | `{"grams":1234,"stable":true,"offline":false,"active":true}` |
+
+- `grams` is what the panel shows, rounded; `stable` turns true once the reading has held still.
+- `offline` is true once the HX711 has not answered for 600 ms, the same rule as the tool's screen.
+- `active` is true only while the parcel scale tool is open. Otherwise `grams` is the weigh screen's net spool weight, not a parcel.
+- The page polls this rather than using `/ws`, because the main loop that feeds the socket does not run while a tool is open.
+
 ### Heat press memo
 
 The list behind the start menu's heat press memo tool, kept in LittleFS as

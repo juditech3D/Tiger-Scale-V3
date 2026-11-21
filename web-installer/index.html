@@ -260,6 +260,7 @@
         <div class="card"><div class="ic feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg></div><h3 data-t="f_sleep_t"></h3><p data-t="f_sleep_p"></p></div>
         <div class="card"><div class="ic feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12a7 7 0 0 1 2-5M19 12a7 7 0 0 0-2-5M8.5 12a3.5 3.5 0 0 1 1-2.5M15.5 12a3.5 3.5 0 0 0-1-2.5"/><circle cx="12" cy="12" r="1.2"/><path d="M12 13.5V20"/></svg></div><h3 data-t="f_rfid_t"></h3><p data-t="f_rfid_p"></p></div>
         <div class="card"><div class="ic feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg></div><h3 data-t="f_ota_t"></h3><p data-t="f_ota_p"></p></div>
+        <div class="card"><div class="ic feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/><path d="M9 10h6M13 8l2 2-2 2"/></svg></div><h3 data-t="f_conn_t"></h3><p><span data-t="f_conn_p"></span> <a id="conn-dl" data-t="f_conn_dl"></a></p></div>
       </div>
     </section>
 
@@ -407,6 +408,9 @@
       fb_issue: 'Signaler un problème ou donner ton avis',
       more_t: 'Et aussi sur la balance',
       more_p: 'Des améliorations qui valent pour tout le firmware, pas pour un seul outil.',
+      f_conn_t: 'Pèse-colis connecté',
+      f_conn_p: 'Ouvre http://tigerscale-XXXX.local/colis sur n\'importe quel appareil : le poids du colis s\'affiche en direct et se copie d\'un clic. En option, le connecteur logiciel pour Windows (un seul fichier, rien à installer) colle le poids tout seul dans le champ actif ou dans le logiciel de ton choix.',
+      f_conn_dl: 'Télécharger le connecteur logiciel',
       f_sleep_t: 'Veille partout',
       f_sleep_p: 'L\'écran s\'éteint après le délai réglé, dans le menu et dans chaque outil, pour éviter le marquage. L\'outil continue de tourner, et le premier toucher ne fait que rallumer. Le pèse-colis se réveille aussi quand le poids bouge, TigerPOD quand on pose une puce, et le mémo presse ne s\'éteint jamais pendant un minuteur.',
       f_rfid_t: 'Sensibilité RFID',
@@ -477,6 +481,9 @@
       fb_issue: 'Report a problem or give feedback',
       more_t: 'Also on the scale',
       more_p: 'Improvements that apply to the whole firmware, not to a single tool.',
+      f_conn_t: 'Connected parcel scale',
+      f_conn_p: 'Open http://tigerscale-XXXX.local/colis on any device: the parcel\'s weight shows live and copies in one click. Optionally, the software connector for Windows (a single file, nothing to install) pastes the weight by itself into the active field or into the program of your choice.',
+      f_conn_dl: 'Download the software connector',
       f_sleep_t: 'Sleep everywhere',
       f_sleep_p: 'The screen turns off after the set delay, in the start menu and in every tool, to avoid burn-in. The tool keeps running, and the first touch only wakes the screen. Parcel scale also wakes when the weight moves, TigerPOD when a chip is put down, and the heat press memo never sleeps while a timer runs.',
       f_rfid_t: 'RFID sensitivity',
@@ -617,6 +624,8 @@
   official.href = OFFICIAL_SITE;
   official.textContent = OFFICIAL_SITE.replace('https://', '').replace(/\/$/, '');
   document.getElementById('source').href = SOURCE;
+  // Attached to each firmware release by .github/workflows/connector.yml.
+  document.getElementById('conn-dl').href = SOURCE + '/releases/latest/download/TigerScaleConnector.exe';
 
   // Theme
   const root = document.documentElement;

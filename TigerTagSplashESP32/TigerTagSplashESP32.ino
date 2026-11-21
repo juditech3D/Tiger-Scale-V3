@@ -15,34 +15,34 @@
 //
 //   TABLE OF CONTENTS                                     line range
 //   ---------------------------------------------------- -----------
-//   HARDWARE CONFIGURATION                                 267-  460
-//   OTA CONFIGURATION                                      461-  497
-//   FORWARD DECLARATIONS                                   498-  808
-//   WEIGHT ROUNDING                                        809-  841
-//   GLOBAL OBJECTS                                         842- 1891
-//   CONFIGURATION VARIABLES                               1892- 2325
-//   OLED DISPLAY                                          2326- 3109
-//   CLOUD PARSING                                         3110- 3124
-//   WIFI SETUP                                            3125-10873
-//   LITTLEFS                                             10874-11173
-//   FIREBASE AUTHENTICATION                              11174-12856
-//   WEBSOCKET                                            12857-12883
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12884-13018
-//   UNIFIED WS FRAME BUILDER                             13019-13143
-//   WEIGHT FILTER HELPERS                                13144-13158
-//   POST-SEND STATE RESET (shared by all send paths)     13159-13179
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13180-13283
-//   WEB SERVER                                           13284-14412
-//   CLOUD COMMUNICATION                                  14413-14595
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14596-15103
-//   mDNS                                                 15104-15141
-//   SCALE                                                15142-15312
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15313-15445
-//   RFID                                                 15446-16528
-//   OTA — Over-the-air firmware + filesystem update    16529-17208
-//   LVGL bridge + main weigh screen                      17209-18172
-//   Remote live view: the screen out, taps back in       18173-19022
-//   SETUP & LOOP                                         19023-20311
+//   HARDWARE CONFIGURATION                                 268-  461
+//   OTA CONFIGURATION                                      462-  498
+//   FORWARD DECLARATIONS                                   499-  809
+//   WEIGHT ROUNDING                                        810-  842
+//   GLOBAL OBJECTS                                         843- 1892
+//   CONFIGURATION VARIABLES                               1893- 2326
+//   OLED DISPLAY                                          2327- 3110
+//   CLOUD PARSING                                         3111- 3125
+//   WIFI SETUP                                            3126-10882
+//   LITTLEFS                                             10883-11182
+//   FIREBASE AUTHENTICATION                              11183-12865
+//   WEBSOCKET                                            12866-12892
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12893-13027
+//   UNIFIED WS FRAME BUILDER                             13028-13152
+//   WEIGHT FILTER HELPERS                                13153-13167
+//   POST-SEND STATE RESET (shared by all send paths)     13168-13188
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13189-13292
+//   WEB SERVER                                           13293-14444
+//   CLOUD COMMUNICATION                                  14445-14627
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14628-15135
+//   mDNS                                                 15136-15173
+//   SCALE                                                15174-15344
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15345-15477
+//   RFID                                                 15478-16560
+//   OTA — Over-the-air firmware + filesystem update    16561-17240
+//   LVGL bridge + main weigh screen                      17241-18204
+//   Remote live view: the screen out, taps back in       18205-19054
+//   SETUP & LOOP                                         19055-20343
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -115,6 +115,7 @@ struct MetadataCache { String mfr; String mat; String col; uint32_t productId; }
 #include "screen_page.h"          // the /screen page — same reason it is a header
 #include "tools_page.h"           // the start menu's tool choice (/tools) — same reason
 #include "presse_page.h"          // the heat press memo editor (/presse) — same reason
+#include "colis_page.h"           // the parcel scale's browser page (/colis) — same reason
 #include "presse_icons.h"         // its product thumbnails (scripts/make-presse-icons.py)
 #include "pod_reader.h"           // TigerPOD tool (§9): one reader as Studio sees it
 #include <mutex>                  // TigerPOD tool (§9): its socket queue
@@ -8284,6 +8285,12 @@ static void runResinMix(lv_obj_t *backTo) {
 // filtered reading the weigh screen shows, so both modes agree on a weight.
 // The tare is the weigh screen's own (lvglTareBtnEvent): same call, same
 // persisted offset, so going back to Tiger Scale keeps the zero.
+//
+// gParcelOpen tells GET /api/parcel (§19) that the tool is up, so the /colis
+// page can say "open the parcel scale" instead of showing the weigh screen's
+// net spool weight as if it were a parcel. The weight itself needs nothing
+// more: readWeight() refreshes currentWeight and gIsStable on this loop.
+static volatile bool gParcelOpen = false;
 static void runParcelScale(lv_obj_t *backTo) {
     enum PsAction { PS_NONE, PS_BACK, PS_TARE };
     static PsAction sPs;
@@ -8311,6 +8318,7 @@ static void runParcelScale(lv_obj_t *backTo) {
 
     lv_scr_load(scr);
     lvglDrainPress(800);
+    gParcelOpen = true;
 
     char shown[24] = "";
     lv_color_t shownCol = LVCOL_MUTED;
@@ -8353,6 +8361,7 @@ static void runParcelScale(lv_obj_t *backTo) {
         if (col.full != shownCol.full) { lv_obj_set_style_text_color(wLbl, col, 0); shownCol = col; }
     }
 
+    gParcelOpen = false;
     lv_scr_load(backTo);
     lv_obj_del(scr);
     lvglDrainPress(800);
@@ -13810,6 +13819,29 @@ void setupWebServer() {
     server.on("/tools", HTTP_GET, [](AsyncWebServerRequest *request){
         AsyncWebServerResponse *r =
             request->beginResponse_P(200, "text/html; charset=utf-8", TOOLS_PAGE);
+        r->addHeader("Cache-Control", "no-store");
+        request->send(r);
+    });
+    // Parcel scale (§9, runParcelScale) from a browser: /colis shows the
+    // weight live with Copy and Paste buttons, and polls /api/parcel. Polling,
+    // not the /ws socket: the main loop that feeds the socket is not running
+    // while a tool is open, but this server is. The paste itself is done by
+    // the optional PC-side connector (tools/connector/), never by the scale.
+    server.on("/colis", HTTP_GET, [](AsyncWebServerRequest *request){
+        AsyncWebServerResponse *r =
+            request->beginResponse_P(200, "text/html; charset=utf-8", COLIS_PAGE);
+        r->addHeader("Cache-Control", "no-store");
+        request->send(r);
+    });
+    server.on("/api/parcel", HTTP_GET, [](AsyncWebServerRequest *request){
+        // Same "offline" rule as the tool's own screen: only a not-ready
+        // streak past 600 ms means the HX711 is gone.
+        bool offline = gHx711NotReadySinceMs != 0 && millis() - gHx711NotReadySinceMs >= 600;
+        char buf[96];
+        snprintf(buf, sizeof buf, "{\"grams\":%d,\"stable\":%s,\"offline\":%s,\"active\":%s}",
+                 roundWeight(currentWeight), gIsStable ? "true" : "false",
+                 offline ? "true" : "false", gParcelOpen ? "true" : "false");
+        AsyncWebServerResponse *r = request->beginResponse(200, "application/json", buf);
         r->addHeader("Cache-Control", "no-store");
         request->send(r);
     });

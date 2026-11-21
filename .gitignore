@@ -133,3 +133,4 @@ __pycache__/
 # PlatformIO drops a preprocessed copy of the sketch next to it when a build
 # is interrupted. It is generated, 550 KB, and must never reach a commit.
 *.ino.cpp
+tools/connector/TigerScaleConnector.exe

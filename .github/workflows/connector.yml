@@ -1,0 +1,62 @@
+name: connector
+
+# The parcel scale's software connector (tools/connector/): a Windows tray
+# program, built with the C# compiler every Windows ships, attached to the
+# firmware release as TigerScaleConnector.exe so the install page can link to
+# releases/latest/download/TigerScaleConnector.exe.
+#
+# Deliberately a workflow of its own, not a job in release.yml: the firmware
+# release and the OTA manifest must never wait on, or fail because of, an
+# optional PC tool. It attaches to a release that already exists and does
+# nothing else -- it never creates a release, so it can never become "latest"
+# and move what every scale's OTA reads.
+
+on:
+  pull_request:
+    paths: ['tools/connector/**', '.github/workflows/connector.yml']
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      attach:
+        description: 'Attach the build to the latest release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with the compiler built into Windows
+        shell: cmd
+        run: call tools\connector\build.cmd
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TigerScaleConnector
+          path: tools/connector/TigerScaleConnector.exe
+
+      # A tag starts release.yml and this workflow at the same moment; the
+      # release only exists once the firmware has built, so wait for it.
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/') || inputs.attach
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          fi
+          for i in $(seq 1 60); do
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            echo "Waiting for release $TAG ($i/60)…"; sleep 60
+          done
+          gh release upload "$TAG" tools/connector/TigerScaleConnector.exe --clobber --repo "$GITHUB_REPOSITORY"
