@@ -102,6 +102,22 @@
   .acc { margin-top:10px; font-size:14px; color:var(--fg); display:flex; gap:6px; align-items:flex-start; }
   .acc svg { width:16px; height:16px; flex:0 0 auto; margin-top:3px; color:var(--accent); }
   .acc .soon { color:var(--muted); }
+  .card .how { display:inline-block; margin-top:10px; font-size:14px; font-weight:600; color:var(--accent); text-decoration:none; }
+  .card .how:hover { text-decoration:underline; }
+  /* how each tool works: one block per tool, three cards, as on the scale */
+  .guide { display:flex; flex-direction:column; gap:22px; }
+  .guide article { scroll-margin-top:16px; }
+  .guide h3 { margin:0 0 10px; font-size:19px; display:flex; align-items:center; gap:10px; }
+  .guide h3 i { width:12px; height:12px; border-radius:50%; flex:0 0 auto; }
+  .guide .grid { grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); }
+  .guide h4 { margin:0 0 6px; font-size:15px; }
+  .guide .card p { white-space:pre-line; min-width:0; }
+  /* coming soon: what is not in a published version yet */
+  .soon-grp { margin:0 0 10px; font-size:16px; color:var(--muted); font-weight:600; }
+  .soon-grp + .grid { margin-bottom:22px; }
+  .card .state { display:inline-block; margin-top:10px; font-size:12px; font-weight:600; border-radius:999px; padding:2px 10px; }
+  .card .state.next { color:var(--ok); border:1px solid var(--ok); }
+  .card .state.prep { color:var(--muted); border:1px solid var(--line); }
   .tag { display:inline-block; font-size:12px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:1px 8px; margin-left:6px; vertical-align:middle; font-weight:500; }
 
   /* install steps */
@@ -253,6 +269,12 @@
       <div class="grid" id="cards"></div>
     </section>
 
+    <section id="guide">
+      <h2 data-t="guide_t"></h2>
+      <p class="sub" data-t="guide_p"></p>
+      <div class="guide" id="guide-list"></div>
+    </section>
+
     <section id="more">
       <h2 data-t="more_t"></h2>
       <p class="sub" data-t="more_p"></p>
@@ -261,6 +283,15 @@
         <div class="card"><div class="ic feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12a7 7 0 0 1 2-5M19 12a7 7 0 0 0-2-5M8.5 12a3.5 3.5 0 0 1 1-2.5M15.5 12a3.5 3.5 0 0 0-1-2.5"/><circle cx="12" cy="12" r="1.2"/><path d="M12 13.5V20"/></svg></div><h3 data-t="f_rfid_t"></h3><p data-t="f_rfid_p"></p></div>
         <div class="card"><div class="ic feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg></div><h3 data-t="f_ota_t"></h3><p data-t="f_ota_p"></p></div>
       </div>
+    </section>
+
+    <section id="soon">
+      <h2 data-t="soon_t"></h2>
+      <p class="sub" data-t="soon_p"></p>
+      <h3 class="soon-grp" data-t="soon_scale"></h3>
+      <div class="grid" id="soon-scale"></div>
+      <h3 class="soon-grp" data-t="soon_studio"></h3>
+      <div class="grid" id="soon-studio"></div>
     </section>
 
     <section id="install">
@@ -405,6 +436,18 @@
       fb_tool: 'Proposer un outil',
       fb_tool_title: 'Idée d\'outil : ',
       fb_issue: 'Signaler un problème ou donner ton avis',
+      guide_t: 'Comment marche chaque outil',
+      guide_p: 'Pour chaque outil : à quoi il sert, ce qu\'on peut faire, et comment faire.',
+      help_link: 'Comment ça marche ?',
+      help_what: 'À quoi ça sert ?',
+      help_can: 'Ce qu\'on peut faire',
+      help_how: 'Comment faire',
+      soon_t: 'À venir',
+      soon_p: 'Ce qui se prépare et n\'est pas encore dans une version publiée. Rien de tout ça n\'est installé par le bouton ci-dessous pour l\'instant : chaque nouveauté arrivera par une mise à jour, une fois vérifiée.',
+      soon_scale: 'Sur la balance',
+      soon_studio: 'Dans le Tiger Studio du fork',
+      soon_next: 'Prochaine version',
+      soon_prep: 'En préparation',
       more_t: 'Et aussi sur la balance',
       more_p: 'Des améliorations qui valent pour tout le firmware, pas pour un seul outil.',
       f_sleep_t: 'Veille partout',
@@ -475,6 +518,18 @@
       fb_tool: 'Suggest a tool',
       fb_tool_title: 'Tool idea: ',
       fb_issue: 'Report a problem or give feedback',
+      guide_t: 'How each tool works',
+      guide_p: 'For each tool: what it is for, what you can do, and how to use it.',
+      help_link: 'How does it work?',
+      help_what: 'What is it for?',
+      help_can: 'What you can do',
+      help_how: 'How to use it',
+      soon_t: 'Coming soon',
+      soon_p: 'What is being prepared and is not in a published version yet. None of it is installed by the button below for now: each one will come as an update, once it has been checked.',
+      soon_scale: 'On the scale',
+      soon_studio: 'In this fork\'s Tiger Studio',
+      soon_next: 'Next version',
+      soon_prep: 'In preparation',
       more_t: 'Also on the scale',
       more_p: 'Improvements that apply to the whole firmware, not to a single tool.',
       f_sleep_t: 'Sleep everywhere',
@@ -553,7 +608,89 @@
       p.textContent = t.desc[lang];
       c.append(ic, h, p);
       if (t.needs) c.append(needs(t));
+      if (window.TOOL_HELP[t.id]) {
+        const a = document.createElement('a');
+        a.className = 'how'; a.href = '#help-' + t.id; a.textContent = tr('help_link');
+        c.append(a);
+      }
       box.append(c);
+    });
+  }
+
+  // One block per tool with help, at #help-<id>: the links on the cards, and
+  // links from elsewhere, land on it directly.
+  function drawGuide() {
+    const box = document.getElementById('guide-list');
+    box.textContent = '';
+    window.TOOLS.forEach(t => {
+      const help = window.TOOL_HELP[t.id];
+      if (!help) return;
+      const art = document.createElement('article');
+      art.id = 'help-' + t.id;
+      const h = document.createElement('h3');
+      const dot = document.createElement('i'); dot.style.background = t.color;
+      h.append(dot, document.createTextNode(t.name[lang]));
+      const g = document.createElement('div'); g.className = 'grid';
+      ['help_what', 'help_can', 'help_how'].forEach((k, i) => {
+        const c = document.createElement('div'); c.className = 'card';
+        const t4 = document.createElement('h4'); t4.textContent = tr(k);
+        const p = document.createElement('p'); p.textContent = help[lang][i];
+        c.append(t4, p); g.append(c);
+      });
+      art.append(h, g); box.append(art);
+    });
+  }
+
+  // What is not published yet. `next`: checked and waiting for the next
+  // version; otherwise still in preparation. Move an entry out of here (into
+  // tools.js or the "Also on the scale" cards) the day its version is out.
+  const SOON = {
+    scale: [
+      { next: true,
+        fr: ['TigerPOD : alerte « 1 puce sur 2 »', 'Quand une seule des deux puces d\'une bobine Bambu Lab est lue, une barre jaune te prévient, avec un bouton qui lance le réglage RFID automatique.'],
+        en: ['TigerPOD: "1 chip of 2" alert', 'When only one of the two chips of a Bambu Lab spool is read, a yellow bar tells you, with a button that starts the automatic RFID setting.'] },
+      { fr: ['Outil Minuterie', 'Jusqu\'à 3 minuteries en même temps, chacune avec son nom (« vernis », « séchage »…), en compte à rebours ou en chrono, avec tes durées favorites.'],
+        en: ['Timer tool', 'Up to 3 timers at once, each with its own name ("varnish", "drying"...), counting down or up, with your favourite durations.'] },
+      { fr: ['Dosage résine : pré-réglages et temps de travail', 'Choisis ta résine dans une liste (époxy 1:1, 2:1, silicone…) ou crée la tienne, puis un minuteur te dit combien de temps il reste avant que le mélange prenne.'],
+        en: ['Resin mixing: presets and working time', 'Pick your resin from a list (epoxy 1:1, 2:1, silicone...) or make your own, then a timer tells you how long is left before the mix sets.'] },
+      { fr: ['Nouveau mémo presse à chaud', 'Un écran tout neuf, des fonds au choix ou ta propre photo, et 38 produits déjà réglés.'],
+        en: ['New heat press memo', 'A brand new screen, backgrounds to choose from or your own photo, and 38 products already set.'] },
+      { fr: ['Pèse-colis connecté au PC', 'Le poids du colis s\'affiche sur ton PC, prêt à copier dans ton site d\'envoi.'],
+        en: ['Parcel scale connected to the PC', 'The parcel\'s weight shows on your PC, ready to copy into your shipping site.'] },
+      { fr: ['Aide « ? » dans chaque outil', 'Trois petites cartes expliquent chaque outil sur l\'écran : à quoi il sert, ce qu\'on peut faire et comment faire.'],
+        en: ['"?" help in every tool', 'Three short cards explain each tool on the screen: what it is for, what you can do and how.'] },
+      { fr: ['Réveil de l\'écran à distance', 'L\'écran de la balance se rallume depuis Tiger Studio, sans la toucher.'],
+        en: ['Wake the screen remotely', 'The scale\'s screen turns back on from Tiger Studio, without touching it.'] }
+    ],
+    studio: [
+      { next: true,
+        fr: ['Bobines Bambu Lab : les deux puces lues', 'Une bobine Bambu Lab a une puce de chaque côté : Studio attend d\'avoir lu les deux avant de l\'ajouter au stock, et te dit ce qui manque.'],
+        en: ['Bambu Lab spools: both chips read', 'A Bambu Lab spool has a chip on each side: Studio waits until it has read both before adding it to the stock, and tells you what is missing.'] },
+      { next: true,
+        fr: ['Impression directe des étiquettes', 'Imprime les étiquettes de tes bobines sur une Marklife P15 (Bluetooth) ou une Brother QL (réseau), avec le bon format choisi tout seul.'],
+        en: ['Direct label printing', 'Print your spool labels on a Marklife P15 (Bluetooth) or a Brother QL (network), with the right format picked for you.'] },
+      { fr: ['Mode du scanner de codes-barres', 'Un bouton choisit où le scanner agit : partout dans l\'appli, seulement dans la barre de recherche, ou pas du tout.'],
+        en: ['Barcode scanner mode', 'A button chooses where the scanner acts: anywhere in the app, only in the search bar, or not at all.'] },
+      { fr: ['Réveiller la balance depuis Studio', 'Un bouton rallume l\'écran de la balance à distance, et la capture d\'écran s\'affiche devant la vue en direct.'],
+        en: ['Wake the scale from Studio', 'A button turns the scale\'s screen back on remotely, and the screenshot shows in front of the live view.'] },
+      { fr: ['Version macOS', 'Le Tiger Studio du fork s\'installera aussi sur Mac (Apple Silicon et Intel).'],
+        en: ['macOS version', 'This fork\'s Tiger Studio will also install on a Mac (Apple Silicon and Intel).'] }
+    ]
+  };
+
+  function drawSoon() {
+    ['scale', 'studio'].forEach(k => {
+      const box = document.getElementById('soon-' + k);
+      box.textContent = '';
+      SOON[k].forEach(f => {
+        const c = document.createElement('div'); c.className = 'card';
+        const h = document.createElement('h3'); h.textContent = f[lang][0];
+        const p = document.createElement('p'); p.textContent = f[lang][1];
+        const st = document.createElement('span');
+        st.className = 'state ' + (f.next ? 'next' : 'prep');
+        st.textContent = tr(f.next ? 'soon_next' : 'soon_prep');
+        c.append(h, p, st); box.append(c);
+      });
     });
   }
 
@@ -605,6 +742,8 @@
     document.querySelectorAll('[data-lang]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
     paintTheme();
     drawCards();
+    drawGuide();
+    drawSoon();
     drawPicker();
   }
   document.querySelectorAll('[data-lang]').forEach(b => b.addEventListener('click', () => {
@@ -713,6 +852,12 @@
   });
 
   applyLang();
+  // The tool blocks are drawn by the script, after the browser has already
+  // looked for the #help-<id> target: scroll to it now that it exists.
+  if (location.hash.startsWith('#help-')) {
+    const target = document.getElementById(location.hash.slice(1));
+    if (target) target.scrollIntoView();
+  }
 })();
 </script>
 </body>

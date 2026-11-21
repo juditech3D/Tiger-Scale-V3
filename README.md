@@ -77,16 +77,17 @@ the scale then updates over the air from the same place. The official firmware i
 
 ### Added
 
-- **A start menu of tools.** The scale boots on a list of tools instead of going straight to weighing:
+- **A start menu of tools.** The scale boots on a list of tools instead of going straight to weighing
+  (each name links to how that tool works):
   - **Tiger Scale**: spool weighing, unchanged
-  - **TigerPOD**: the scale's two readers serve Tiger Studio over the network (needs the
+  - **[TigerPOD](https://juditech3d.github.io/Tiger-Scale-V3/#help-pod)**: the scale's two readers serve Tiger Studio over the network (needs the
     [Studio fork](https://github.com/juditech3D/TigerTag-Studio-Manager)), for TigerTag and Bambu Lab chips
-  - **Parcel scale**: live weight with tare, no account and no network
-  - **Parts counter**: step-by-step wizard with reference parts, unit weight remembered
-  - **Resin mixing**: two-part resin or epoxy by weight (ratio 100 : B), progress bar and beeps at the
+  - **[Parcel scale](https://juditech3d.github.io/Tiger-Scale-V3/#help-parcel)**: live weight with tare, no account and no network
+  - **[Parts counter](https://juditech3d.github.io/Tiger-Scale-V3/#help-count)**: step-by-step wizard with reference parts, unit weight remembered
+  - **[Resin mixing](https://juditech3d.github.io/Tiger-Scale-V3/#help-mix)**: two-part resin or epoxy by weight (ratio 100 : B), progress bar and beeps at the
     right amount
-  - **Calibration & test**: raw load-cell readings, wiring diagnosis, calibration wizard
-  - **Heat press memo**: temperatures and times per product, timer with alarm, editor in the browser
+  - **[Calibration & test](https://juditech3d.github.io/Tiger-Scale-V3/#help-caltest)**: raw load-cell readings, wiring diagnosis, calibration wizard
+  - **[Heat press memo](https://juditech3d.github.io/Tiger-Scale-V3/#help-presse)**: temperatures and times per product, timer with alarm, editor in the browser
 - **Your menu, your order**: the eye button hides, shows and reorders the tools.
 - **Screen sleep in every tool**, never in the middle of a weighing.
 - **RFID sensitivity** (receive gain, 33 to 48 dB) beside the power level in Settings > RFID, also chosen
