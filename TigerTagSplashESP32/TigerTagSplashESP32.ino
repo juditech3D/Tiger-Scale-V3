@@ -23,26 +23,26 @@
 //   CONFIGURATION VARIABLES                               1893- 2326
 //   OLED DISPLAY                                          2327- 3110
 //   CLOUD PARSING                                         3111- 3125
-//   WIFI SETUP                                            3126-10882
-//   LITTLEFS                                             10883-11182
-//   FIREBASE AUTHENTICATION                              11183-12865
-//   WEBSOCKET                                            12866-12892
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12893-13027
-//   UNIFIED WS FRAME BUILDER                             13028-13152
-//   WEIGHT FILTER HELPERS                                13153-13167
-//   POST-SEND STATE RESET (shared by all send paths)     13168-13188
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13189-13292
-//   WEB SERVER                                           13293-14444
-//   CLOUD COMMUNICATION                                  14445-14627
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14628-15135
-//   mDNS                                                 15136-15173
-//   SCALE                                                15174-15344
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15345-15477
-//   RFID                                                 15478-16560
-//   OTA — Over-the-air firmware + filesystem update    16561-17240
-//   LVGL bridge + main weigh screen                      17241-18204
-//   Remote live view: the screen out, taps back in       18205-19054
-//   SETUP & LOOP                                         19055-20343
+//   WIFI SETUP                                            3126-10912
+//   LITTLEFS                                             10913-11212
+//   FIREBASE AUTHENTICATION                              11213-12895
+//   WEBSOCKET                                            12896-12922
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12923-13057
+//   UNIFIED WS FRAME BUILDER                             13058-13182
+//   WEIGHT FILTER HELPERS                                13183-13197
+//   POST-SEND STATE RESET (shared by all send paths)     13198-13218
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13219-13322
+//   WEB SERVER                                           13323-14474
+//   CLOUD COMMUNICATION                                  14475-14657
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14658-15165
+//   mDNS                                                 15166-15203
+//   SCALE                                                15204-15374
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15375-15507
+//   RFID                                                 15508-16590
+//   OTA — Over-the-air firmware + filesystem update    16591-17270
+//   LVGL bridge + main weigh screen                      17271-18234
+//   Remote live view: the screen out, taps back in       18235-19084
+//   SETUP & LOOP                                         19085-20373
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -8299,6 +8299,14 @@ static void runParcelScale(lv_obj_t *backTo) {
     };
     sPs = PS_NONE;
 
+    // /colis is served by the async server, which loop() normally starts a
+    // few seconds after boot; opened straight from the start menu, this tool
+    // runs before that point. Same start as the heat press memo's.
+    if (ENABLE_HTTP_SERVER && gWebServerStartPending && !gWebServerStarted && !gWebServerStarting) {
+        gWebServerStarting = true;
+        startWebServerNow();
+    }
+
     lv_obj_t *scr = lv_obj_create(nullptr);
     lv_obj_set_style_bg_color(scr, LVCOL_BG, 0);
     lv_obj_set_style_border_width(scr, 0, 0);
@@ -8311,7 +8319,29 @@ static void runParcelScale(lv_obj_t *backTo) {
     lv_obj_set_style_text_color(wLbl, LVCOL_MUTED, 0);
     lv_obj_set_width(wLbl, 480);
     lv_obj_set_style_text_align(wLbl, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(wLbl, 0, 118);
+    lv_obj_set_pos(wLbl, 0, 100);
+
+    // Where to read it from a computer: the /colis page, and the connector
+    // that pastes it into another program. The address is white, like every
+    // tool's configuration address; it is the IP, as the memo's is, because
+    // a .local name does not resolve everywhere.
+    auto psLine = [&](int y, const String &txt, lv_color_t col, const lv_font_t *font) {
+        lv_obj_t *l = lv_label_create(scr);
+        lv_label_set_text(l, txt.c_str());
+        lv_obj_set_style_text_font(l, font, 0);
+        lv_obj_set_style_text_color(l, col, 0);
+        lv_obj_set_width(l, 470);
+        lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_pos(l, 5, y);
+    };
+    if (WiFi.isConnected()) {
+        psLine(166, t(I18N_PARCEL_PC), LVCOL_MUTED, &gFont14);
+        psLine(186, String("http://") + WiFi.localIP().toString() + "/colis", LVCOL_TEXT, &gFont20);
+        psLine(214, t(I18N_PARCEL_CONNECTOR), LVCOL_MUTED, &gFont14);
+    } else {
+        psLine(190, t(I18N_NO_WIFI), LVCOL_RED, &gFont16);
+    }
 
     lv_obj_t *tareBtn = lvglAddTareButton(scr, 220, 64, cb, (intptr_t)PS_TARE);
     lv_obj_align(tareBtn, LV_ALIGN_BOTTOM_MID, 0, -12);

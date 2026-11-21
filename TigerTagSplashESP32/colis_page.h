@@ -34,7 +34,7 @@ button{cursor:pointer;font-weight:600}button:disabled{opacity:.35;cursor:default
 .pri{background:var(--accent);border-color:var(--accent);color:#fff}.wide{grid-column:1/-1}
 label{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0;color:var(--text)}
 label select,label input[type=text]{flex:0 1 60%;min-width:0}input[type=checkbox]{width:22px;height:22px;accent-color:var(--accent)}
-.small{font-size:13px;color:var(--muted)}#conn b{font-weight:600}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--bad);margin-right:6px}
+.small{font-size:13px;color:var(--muted)}#conn b{font-weight:600}#conn a{color:var(--accent)}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--bad);margin-right:6px}
 .dot.on{background:var(--ok)}#msg{text-align:center;min-height:1.4em;margin-top:8px;font-size:14px;color:var(--muted)}
 </style></head><body><main>
 <h1 id="h"></h1>
@@ -58,6 +58,8 @@ label select,label input[type=text]{flex:0 1 60%;min-width:0}input[type=checkbox
 <div class="card small" id="conn"></div>
 </main><script>
 const fr=(navigator.language||'').toLowerCase().startsWith('fr');
+// Attached to each firmware release by .github/workflows/connector.yml.
+const DL='https://github.com/juditech3D/Tiger-Scale-V3/releases/latest/download/TigerScaleConnector.exe';
 const L=fr?{h:'Pèse-colis',copy:'Copier',tare:'Tarer',pfield:'Coller dans le champ actif',papp:'Coller dans le logiciel choisi',
 unit:'Unité',sep:'Séparateur décimal',suf:'Ajouter l’unité (g, kg)',after:'Après le collage',none:'Rien',tab:'Touche Tab',enter:'Touche Entrée',
 app:'Logiciel choisi (chemin ou nom)',auto:'Collage automatique',off:'Non',afield:'Dans le champ actif',aapp:'Dans le logiciel choisi',
@@ -66,7 +68,7 @@ open:'Ouvrez l’outil Pèse-colis sur la balance.',moving:'Poids en mouvement�
 copied:'Copié : ',pasted:'Collé : ',noconn:'Le connecteur logiciel n’est pas lancé sur ce PC.',noapp:'Indiquez d’abord le logiciel choisi.',fail:'Échec : ',
 conn_on:'Connecteur logiciel <b>actif</b> : les boutons Coller fonctionnent.',
 conn_off:'Connecteur logiciel <b>injoignable</b>. Vérifiez qu’il tourne toujours (icône près de l’horloge).',
-viascale:'Pour coller le poids directement dans un autre logiciel, installez le <b>connecteur logiciel</b> sur le PC (téléchargement sur la page d’installation du firmware) : il ouvre cette même page avec les boutons Coller.',
+viascale:'Pour coller le poids directement dans un autre logiciel, installez le <b>connecteur logiciel</b> sur le PC (<a href="'+DL+'">télécharger, Windows</a>) : il ouvre cette même page avec les boutons Coller.',
 scale:'Adresse de la balance',ssave:'Enregistrer',sscan:'Rechercher sur le réseau',scanning:'Recherche en cours…',found:'Balance trouvée : ',notfound:'Aucune balance trouvée.',saved:'Enregistré.'}
 :{h:'Parcel scale',copy:'Copy',tare:'Tare',pfield:'Paste into the active field',papp:'Paste into the chosen program',
 unit:'Unit',sep:'Decimal separator',suf:'Add the unit (g, kg)',after:'After pasting',none:'Nothing',tab:'Tab key',enter:'Enter key',
@@ -76,7 +78,7 @@ open:'Open the Parcel scale tool on the scale.',moving:'Weight moving…',stable
 copied:'Copied: ',pasted:'Pasted: ',noconn:'The software connector is not running on this PC.',noapp:'Set the chosen program first.',fail:'Failed: ',
 conn_on:'Software connector <b>running</b>: the Paste buttons work.',
 conn_off:'Software connector <b>unreachable</b>. Check that it is still running (icon next to the clock).',
-viascale:'To paste the weight straight into another program, install the <b>software connector</b> on the PC (download on the firmware install page): it opens this same page with the Paste buttons.',
+viascale:'To paste the weight straight into another program, install the <b>software connector</b> on the PC (<a href="'+DL+'">download, Windows</a>): it opens this same page with the Paste buttons.',
 scale:'Scale address',ssave:'Save',sscan:'Search the network',scanning:'Searching…',found:'Scale found: ',notfound:'No scale found.',saved:'Saved.'};
 const $=id=>document.getElementById(id);
 for(const k of['h','copy','tare','pfield','papp'])$(k).textContent=L[k];

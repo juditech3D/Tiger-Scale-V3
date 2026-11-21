@@ -28,7 +28,11 @@ log lives in git history and the synthesised entry lives in the changelog.
   into the active field or a named running program (manual or automatic, once
   per parcel). `.github/workflows/connector.yml` builds it with the compiler
   built into Windows and attaches the `.exe` to each `v*` release.
-  `docs/API.md` documents both endpoints.
+  `docs/API.md` documents both endpoints. The parcel scale screen shows the
+  `/colis` address (white) and points to the connector (`I18N_PARCEL_PC`,
+  `I18N_PARCEL_CONNECTOR`), and starts the web server itself when opened
+  straight from the start menu; the page served by the scale links the
+  connector's download.
 
 ### Fixed
 
