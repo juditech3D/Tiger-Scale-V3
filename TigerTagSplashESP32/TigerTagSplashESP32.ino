@@ -15,34 +15,34 @@
 //
 //   TABLE OF CONTENTS                                     line range
 //   ---------------------------------------------------- -----------
-//   HARDWARE CONFIGURATION                                 267-  460
-//   OTA CONFIGURATION                                      461-  497
-//   FORWARD DECLARATIONS                                   498-  808
-//   WEIGHT ROUNDING                                        809-  841
-//   GLOBAL OBJECTS                                         842- 1891
-//   CONFIGURATION VARIABLES                               1892- 2325
-//   OLED DISPLAY                                          2326- 3109
-//   CLOUD PARSING                                         3110- 3124
-//   WIFI SETUP                                            3125-10873
-//   LITTLEFS                                             10874-11173
-//   FIREBASE AUTHENTICATION                              11174-12856
-//   WEBSOCKET                                            12857-12883
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12884-13018
-//   UNIFIED WS FRAME BUILDER                             13019-13143
-//   WEIGHT FILTER HELPERS                                13144-13158
-//   POST-SEND STATE RESET (shared by all send paths)     13159-13179
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13180-13283
-//   WEB SERVER                                           13284-14412
-//   CLOUD COMMUNICATION                                  14413-14595
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14596-15103
-//   mDNS                                                 15104-15141
-//   SCALE                                                15142-15312
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15313-15445
-//   RFID                                                 15446-16528
-//   OTA — Over-the-air firmware + filesystem update    16529-17208
-//   LVGL bridge + main weigh screen                      17209-18172
-//   Remote live view: the screen out, taps back in       18173-19022
-//   SETUP & LOOP                                         19023-20311
+//   HARDWARE CONFIGURATION                                 269-  462
+//   OTA CONFIGURATION                                      463-  499
+//   FORWARD DECLARATIONS                                   500-  810
+//   WEIGHT ROUNDING                                        811-  843
+//   GLOBAL OBJECTS                                         844- 1893
+//   CONFIGURATION VARIABLES                               1894- 2327
+//   OLED DISPLAY                                          2328- 3111
+//   CLOUD PARSING                                         3112- 3126
+//   WIFI SETUP                                            3127-11540
+//   LITTLEFS                                             11541-11840
+//   FIREBASE AUTHENTICATION                              11841-13523
+//   WEBSOCKET                                            13524-13550
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 13551-13685
+//   UNIFIED WS FRAME BUILDER                             13686-13810
+//   WEIGHT FILTER HELPERS                                13811-13825
+//   POST-SEND STATE RESET (shared by all send paths)     13826-13846
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13847-13950
+//   WEB SERVER                                           13951-15124
+//   CLOUD COMMUNICATION                                  15125-15307
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 15308-15815
+//   mDNS                                                 15816-15853
+//   SCALE                                                15854-16024
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  16025-16157
+//   RFID                                                 16158-17240
+//   OTA — Over-the-air firmware + filesystem update    17241-17920
+//   LVGL bridge + main weigh screen                      17921-18884
+//   Remote live view: the screen out, taps back in       18885-19734
+//   SETUP & LOOP                                         19735-21023
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -69,6 +69,7 @@ enum OledState : uint8_t {
 #include <ArduinoJson.h>
 #include <ESPmDNS.h>
 #include <Preferences.h>
+#include <new>                    // std::nothrow (the timer tool)
 #include <Wire.h>
 #include <HX711.h>
 #include <mbedtls/base64.h>       // decoding the idToken JWT payload (§9 pairing)
@@ -115,6 +116,7 @@ struct MetadataCache { String mfr; String mat; String col; uint32_t productId; }
 #include "screen_page.h"          // the /screen page — same reason it is a header
 #include "tools_page.h"           // the start menu's tool choice (/tools) — same reason
 #include "presse_page.h"          // the heat press memo editor (/presse) — same reason
+#include "timer_page.h"           // the timer tool's ready-made times (/minuterie) — same reason
 #include "presse_icons.h"         // its product thumbnails (scripts/make-presse-icons.py)
 #include "pod_reader.h"           // TigerPOD tool (§9): one reader as Studio sees it
 #include <mutex>                  // TigerPOD tool (§9): its socket queue
@@ -3704,7 +3706,10 @@ static const lv_btnmatrix_ctrl_t kbCtrlSpec[] = {
 // text, or the single-byte 0x01 sentinel on cancel (see kbCancelled()). Safe
 // to pump its own lv_timer_handler() loop for the same reason as
 // tsPick_network()/runLanguageSettings() above.
-static String tsKeyboard(const String& header, bool password) {
+// `backTo` (default: the weigh screen) is the screen it returns to, `initial`
+// the text it opens with, `maxLen` a cap in characters (0: none).
+static String tsKeyboard(const String& header, bool password, lv_obj_t *backTo = nullptr,
+                         const char *initial = nullptr, uint32_t maxLen = 0) {
     enum KbAction { KB_NONE, KB_READY, KB_CANCEL };
     static KbAction sKbAction;
 
@@ -3774,6 +3779,8 @@ static String tsKeyboard(const String& header, bool password) {
     lv_obj_set_size(ta, password ? 420 : 468, 38);
     lv_obj_set_pos(ta, 6, 52);
     lv_textarea_set_one_line(ta, true);
+    if (maxLen) lv_textarea_set_max_length(ta, maxLen);
+    if (initial) lv_textarea_set_text(ta, initial);
     lv_textarea_set_password_mode(ta, password);
     if (password) lv_textarea_set_password_show_time(ta, 900);
     lv_obj_set_style_bg_color(ta, LVCOL_CARD, 0);
@@ -3865,7 +3872,7 @@ static String tsKeyboard(const String& header, bool password) {
 
     String result = (sKbAction == KB_CANCEL) ? String("\x01") : String(lv_textarea_get_text(ta));
 
-    lv_scr_load(lvScreen);
+    lv_scr_load(backTo ? backTo : lvScreen);
     lv_obj_del(scr);
     { int16_t dx, dy; uint32_t t0 = millis(); while (tsRead(dx, dy) && millis()-t0 < 1000) delay(20); }
     return result;
@@ -9685,6 +9692,665 @@ static void runTigerPod(lv_obj_t *backTo) {
     lvglDrainPress(800);
 }
 
+// ---------------------------------------------------------------------------
+// Timers
+// ---------------------------------------------------------------------------
+// Three timers side by side, each a countdown or a stopwatch, each with an
+// optional name ("Epoxy glue"). A finished timer rings inside its own slot --
+// no popup -- so two that end together are both visible, and the others keep
+// running beside them.
+//
+// The ready-made times are a list the owner edits from a browser (/minuterie,
+// timer_page.h) or grows from the scale ("Keep" on the manual screen). Stored
+// as text in NVS "timers"/"list", one "seconds<TAB>name" line per entry;
+// "timers"/"manual" is the last manual duration.
+//
+// Everything the tool holds while open (the slots, the list) lives in one heap
+// block that is freed on the way out, with the screens: leaving the tool stops
+// every timer and leaves nothing behind.
+// The limits and the types live in timer_page.h: the .ino converter emits
+// the prototypes of the functions below at the top of the file, so the types
+// they take have to exist before any .ino line does.
+static const char TMR_DEFAULT_LIST[] = "60\t\n180\t\n300\t\n600\t\n900\t\n1800\t\n2700\t\n3600\t\n";
+static const uint32_t kTimerColors[TMR_SLOTS] = { 0x2F7FFF, 0xE8821E, 0x3BA55D };
+
+static TimerTool *gTmr = nullptr;    // only while the tool is open
+
+// Copies at most TMR_NAME_MAX characters of `src`, dropping tabs, newlines and
+// other control bytes, and never cutting a UTF-8 sequence in half.
+static void timerCopyName(char *dst, const char *src, size_t srcLen) {
+    size_t o = 0; int chars = 0;
+    for (size_t i = 0; i < srcLen && src[i]; ) {
+        uint8_t c = (uint8_t)src[i];
+        size_t n = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 0;
+        if (n == 0 || i + n > srcLen) break;                // malformed: stop here
+        if (n == 1 && c < 0x20) { i++; continue; }
+        if (chars >= TMR_NAME_MAX || o + n >= TMR_NAME_BYTES) break;
+        memcpy(dst + o, src + i, n); o += n; i += n; chars++;
+    }
+    while (o > 0 && dst[o - 1] == ' ') o--;
+    size_t s = 0; while (s < o && dst[s] == ' ') s++;
+    if (s) memmove(dst, dst + s, o - s);
+    dst[o - s] = '\0';
+}
+
+// "seconds<TAB>name" lines -> presets. Lines that do not parse are skipped.
+static int timerParseList(const char *txt, TimerPreset *out, int max) {
+    int n = 0;
+    while (*txt && n < max) {
+        const char *eol = strchr(txt, '\n');
+        size_t len = eol ? (size_t)(eol - txt) : strlen(txt);
+        char *end = nullptr;
+        unsigned long sec = strtoul(txt, &end, 10);
+        if (end && end != txt && sec >= 1 && sec <= TMR_MAX_SEC) {
+            out[n].sec = (uint32_t)sec;
+            out[n].name[0] = '\0';
+            if ((size_t)(end - txt) < len && *end == '\t')
+                timerCopyName(out[n].name, end + 1, len - (size_t)(end - txt) - 1);
+            n++;
+        }
+        if (!eol) break;
+        txt = eol + 1;
+    }
+    return n;
+}
+
+static String timerListText(const TimerPreset *p, int n) {
+    String s;
+    for (int i = 0; i < n; i++) { s += String(p[i].sec); s += '\t'; s += p[i].name; s += '\n'; }
+    return s;
+}
+
+// Own Preferences object: the HTTP handlers call these from the server task.
+static String timerLoadListText() {
+    Preferences p;
+    p.begin("timers", true);
+    String s = p.isKey("list") ? p.getString("list", "") : String(TMR_DEFAULT_LIST);
+    p.end();
+    return s;
+}
+
+static bool timerSaveListText(const String &s) {
+    Preferences p;
+    if (!p.begin("timers", false)) return false;
+    bool ok = p.putString("list", s) == s.length();
+    p.end();
+    return ok;
+}
+
+static void timerResetList() {
+    Preferences p;
+    p.begin("timers", false);
+    p.remove("list");
+    p.end();
+}
+
+// 45:00, 2:46:10
+static void timerFmt(uint32_t sec, char *buf, size_t n) {
+    if (sec >= 3600) snprintf(buf, n, "%u:%02u:%02u", (unsigned)(sec / 3600), (unsigned)(sec / 60 % 60), (unsigned)(sec % 60));
+    else             snprintf(buf, n, "%02u:%02u", (unsigned)(sec / 60), (unsigned)(sec % 60));
+}
+
+// A ready-made time as people say it: 5 min, 1 h, 1 h 30, else 2:30.
+static void timerFmtShort(uint32_t sec, char *buf, size_t n) {
+    if (sec % 3600 == 0)                    snprintf(buf, n, "%u h", (unsigned)(sec / 3600));
+    else if (sec >= 3600 && sec % 60 == 0)  snprintf(buf, n, "%u h %02u", (unsigned)(sec / 3600), (unsigned)(sec / 60 % 60));
+    else if (sec % 60 == 0)                 snprintf(buf, n, "%u min", (unsigned)(sec / 60));
+    else                                    timerFmt(sec, buf, n);
+}
+
+static uint32_t timerLeftMs(const TimerSlot &s, uint32_t now) {
+    if (s.state != TMS_RUN) return s.accMs;
+    uint32_t gone = now - s.markMs;
+    return gone >= s.accMs ? 0 : s.accMs - gone;
+}
+
+static uint32_t timerElapsedMs(const TimerSlot &s, uint32_t now) {
+    return s.state == TMS_RUN ? s.accMs + (now - s.markMs) : s.accMs;
+}
+
+static void timerStart(int i, uint32_t sec, bool chrono, const char *name) {
+    TimerSlot &s = gTmr->slot[i];
+    s.chrono  = chrono;
+    s.totalMs = sec * 1000u;
+    s.accMs   = chrono ? 0 : s.totalMs;
+    s.markMs  = millis();
+    s.state   = TMS_RUN;
+    timerCopyName(s.name, name ? name : "", name ? strlen(name) : 0);
+}
+
+// Once per pass of every loop the tool runs (main screen and its sub-screens):
+// ends the countdowns that reached zero and rings the finished ones. True while
+// one rings, which holds the screen awake.
+static bool timersTick() {
+    uint32_t now = millis();
+    bool ringing = false, beep = false;
+    for (int i = 0; i < TMR_SLOTS; i++) {
+        TimerSlot &s = gTmr->slot[i];
+        if (s.state == TMS_RUN && !s.chrono && timerLeftMs(s, now) == 0) {
+            s.state = TMS_DONE;
+            s.accMs = 0;
+            s.doneAtMs = now;
+            s.lastBeepMs = now - TMR_BEEP_EVERY;
+        }
+        if (s.state == TMS_DONE && now - s.doneAtMs < TMR_RING_MS) {
+            ringing = true;
+            if (now - s.lastBeepMs >= TMR_BEEP_EVERY) { s.lastBeepMs = now; beep = true; }
+        }
+    }
+    if (beep) playBeeps(2400, 100, 2);
+    return ringing;
+}
+
+static String timerEditUrl() {
+    if (!WiFi.isConnected()) return String("");
+    return String("http://") + WiFi.localIP().toString() + "/minuterie";
+}
+
+// The shared event: user data = action << 4 | slot.
+enum { TA_NONE, TA_BACK, TA_ADD, TA_PAUSE, TA_STOP, TA_OK, TA_PLUS1,
+       TA_PRESET, TA_CHRONO, TA_MANUAL,
+       TA_NAME, TA_HUP, TA_HDN, TA_MUP, TA_MDN, TA_SUP, TA_SDN, TA_KEEP, TA_GO };
+static int sTmrAct, sTmrArg;
+static void timerCb(lv_event_t *e) {
+    intptr_t v = (intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e));
+    sTmrAct = (int)(v >> 8);
+    sTmrArg = (int)(v & 0xFF);
+}
+#define TMR_UD(act, arg) ((intptr_t)(((act) << 8) | (arg)))
+
+static lv_obj_t *timerLabel(lv_obj_t *parent, const lv_font_t *font, lv_color_t col, int w) {
+    lv_obj_t *l = lv_label_create(parent);
+    lv_label_set_text(l, "");
+    lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(l, w);
+    lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(l, font, 0);
+    lv_obj_set_style_text_color(l, col, 0);
+    return l;
+}
+
+static void timerVis(lv_obj_t *o, bool on) {
+    if (on) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void timerDisplayName(int i, char *buf, size_t n) {
+    const TimerSlot &s = gTmr->slot[i];
+    if (s.name[0]) snprintf(buf, n, "%s", s.name);
+    else           snprintf(buf, n, t(I18N_TMR_DEFAULT), i + 1);
+}
+
+static void timerBuildSlot(lv_obj_t *scr, int i) {
+    TimerSlot &s = gTmr->slot[i];
+    lv_color_t col = lv_color_hex(kTimerColors[i]);
+    const int W = 148, H = 256;
+
+    s.card = lv_obj_create(scr);
+    lv_obj_remove_style_all(s.card);
+    lv_obj_set_size(s.card, W, H);
+    lv_obj_set_pos(s.card, 10 + i * 156, 54);
+    lv_obj_set_style_bg_color(s.card, LVCOL_CARD, 0);
+    lv_obj_set_style_bg_opa(s.card, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(s.card, LVCOL_BORDER, 0);
+    lv_obj_set_style_border_width(s.card, 1, 0);
+    lv_obj_set_style_radius(s.card, 12, 0);
+    lv_obj_clear_flag(s.card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_user_data(s.card, (void *)TMR_UD(TA_ADD, i));
+    lv_obj_add_event_cb(s.card, timerCb, LV_EVENT_CLICKED, nullptr);
+
+    s.nameL = timerLabel(s.card, &gFont14, col, W - 12);
+    lv_obj_set_pos(s.nameL, 6, 8);
+
+    s.ring = lv_arc_create(s.card);
+    lv_obj_set_size(s.ring, 120, 120);
+    lv_obj_set_pos(s.ring, 14, 30);
+    lv_arc_set_rotation(s.ring, 270);
+    lv_arc_set_bg_angles(s.ring, 0, 360);
+    lv_arc_set_range(s.ring, 0, 1000);
+    lv_arc_set_value(s.ring, 0);
+    lv_obj_clear_flag(s.ring, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_arc_color(s.ring, LVCOL_BORDER, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(s.ring, 10, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(s.ring, col, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(s.ring, 10, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(s.ring, true, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(s.ring, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_set_style_pad_all(s.ring, 0, LV_PART_KNOB);
+
+    s.timeL = timerLabel(s.ring, &lv_font_montserrat_28, LVCOL_TEXT, 100);
+    lv_obj_align(s.timeL, LV_ALIGN_CENTER, 0, -6);
+    s.subL = timerLabel(s.ring, &gFont14, LVCOL_MUTED, 96);
+    lv_obj_align(s.subL, LV_ALIGN_CENTER, 0, 22);
+
+    s.stateL = timerLabel(s.card, &gFont14, LVCOL_GREEN, W - 12);
+    lv_obj_set_pos(s.stateL, 6, 160);
+
+    s.pauseB = toolButton(s.card, 8, 196, 62, 50, LV_SYMBOL_PAUSE, LVCOL_ORANGE, timerCb, TMR_UD(TA_PAUSE, i));
+    s.pauseL = lv_obj_get_child(s.pauseB, 0);
+    s.stopB  = toolButton(s.card, 78, 196, 62, 50, LV_SYMBOL_CLOSE, LVCOL_BG, timerCb, TMR_UD(TA_STOP, i));
+
+    // Empty: a "+" and the invitation. Plain children, so the tap reaches the card.
+    s.addBox = lv_obj_create(s.card);
+    lv_obj_remove_style_all(s.addBox);
+    lv_obj_set_size(s.addBox, W - 2, H - 2);
+    lv_obj_clear_flag(s.addBox, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s.addBox, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_t *plus = timerLabel(s.addBox, &lv_font_montserrat_48, LVCOL_FAINT, W - 12);
+    lv_label_set_text(plus, LV_SYMBOL_PLUS);
+    lv_obj_align(plus, LV_ALIGN_CENTER, 0, -28);
+    lv_obj_t *addL = timerLabel(s.addBox, &gFont14, LVCOL_MUTED, W - 20);
+    lv_label_set_long_mode(addL, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(addL, t(I18N_TMR_ADD));
+    lv_obj_align(addL, LV_ALIGN_CENTER, 0, 30);
+
+    // Finished: bell, "Done", the time it ran, +1:00 and OK.
+    s.doneBox = lv_obj_create(s.card);
+    lv_obj_remove_style_all(s.doneBox);
+    lv_obj_set_size(s.doneBox, W - 2, H - 2);
+    lv_obj_clear_flag(s.doneBox, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *bell = timerLabel(s.doneBox, &lv_font_montserrat_40, col, W - 12);
+    lv_label_set_text(bell, LV_SYMBOL_BELL);
+    lv_obj_set_pos(bell, 6, 34);
+    lv_obj_t *doneL = timerLabel(s.doneBox, &gFont20, LVCOL_TEXT, W - 12);
+    lv_label_set_text(doneL, t(I18N_TMR_DONE));
+    lv_obj_set_pos(doneL, 6, 88);
+    s.doneTotalL = timerLabel(s.doneBox, &gFont14, LVCOL_MUTED, W - 12);
+    lv_obj_set_pos(s.doneTotalL, 6, 116);
+    toolButton(s.doneBox, 8, 146, 130, 40, "+1:00", LVCOL_CARD, timerCb, TMR_UD(TA_PLUS1, i));
+    toolButton(s.doneBox, 8, 194, 130, 52, "OK", col, timerCb, TMR_UD(TA_OK, i));
+
+    s.shownState = 0xFF;
+    s.shownBlink = false;
+}
+
+// Repaints a slot: its layout when its state changed, its figures every pass
+// (the setters return early when the text is the same).
+static void timerPaintSlot(int i, uint32_t now) {
+    TimerSlot &s = gTmr->slot[i];
+    lv_color_t col = lv_color_hex(kTimerColors[i]);
+    bool active = s.state == TMS_RUN || s.state == TMS_PAUSE;
+
+    if (s.state != s.shownState) {
+        s.shownState = s.state;
+        timerVis(s.addBox, s.state == TMS_EMPTY);
+        timerVis(s.doneBox, s.state == TMS_DONE);
+        timerVis(s.nameL, s.state != TMS_EMPTY);
+        timerVis(s.ring, active);
+        timerVis(s.stateL, active);
+        timerVis(s.pauseB, active);
+        timerVis(s.stopB, active);
+        if (s.state == TMS_EMPTY) lv_obj_add_flag(s.card, LV_OBJ_FLAG_CLICKABLE);
+        else                     lv_obj_clear_flag(s.card, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_border_color(s.card, s.state == TMS_DONE ? col : LVCOL_BORDER, 0);
+        lv_obj_set_style_border_width(s.card, s.state == TMS_DONE ? 2 : 1, 0);
+        lv_obj_set_style_bg_color(s.card, LVCOL_CARD, 0);
+        s.shownBlink = false;
+        if (active) {
+            bool run = s.state == TMS_RUN;
+            toolSetText(s.stateL, t(run ? I18N_TMR_RUNNING : I18N_TMR_PAUSED));
+            lv_obj_set_style_text_color(s.stateL, run ? LVCOL_GREEN : LVCOL_YELLOW, 0);
+            toolSetText(s.pauseL, run ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
+            lv_obj_set_style_bg_color(s.pauseB, run ? LVCOL_ORANGE : LVCOL_GREEN, 0);
+        }
+        if (s.state == TMS_DONE) {
+            char b[16]; timerFmt(s.totalMs / 1000, b, sizeof b);
+            toolSetText(s.doneTotalL, b);
+        }
+    }
+    if (s.state != TMS_EMPTY) {
+        char nb[TMR_NAME_BYTES + 16]; timerDisplayName(i, nb, sizeof nb);
+        toolSetText(s.nameL, nb);
+    }
+    if (active) {
+        char b[16], sub[24];
+        int16_t v;
+        if (s.chrono) {
+            uint32_t ms = timerElapsedMs(s, now);
+            timerFmt(ms / 1000, b, sizeof b);
+            snprintf(sub, sizeof sub, "%s", t(I18N_TMR_CHRONO));
+            v = (int16_t)((ms % 60000u) / 60);                      // one turn a minute
+        } else {
+            uint32_t ms = timerLeftMs(s, now);
+            timerFmt((ms + 999) / 1000, b, sizeof b);
+            char tot[16]; timerFmt(s.totalMs / 1000, tot, sizeof tot);
+            snprintf(sub, sizeof sub, "/ %s", tot);
+            v = s.totalMs ? (int16_t)((uint64_t)ms * 1000 / s.totalMs) : 0;
+        }
+        const lv_font_t *f = strlen(b) > 5 ? &gFont20 : &lv_font_montserrat_28;
+        if (lv_obj_get_style_text_font(s.timeL, LV_PART_MAIN) != f) lv_obj_set_style_text_font(s.timeL, f, 0);
+        toolSetText(s.timeL, b);
+        toolSetText(s.subL, sub);
+        if (lv_arc_get_value(s.ring) != v) lv_arc_set_value(s.ring, v);
+    }
+    if (s.state == TMS_DONE) {
+        // Blinks while it rings, then holds still until OK.
+        bool ringing = now - s.doneAtMs < TMR_RING_MS;
+        bool on = ringing && ((now - s.doneAtMs) / 500) % 2 == 0;
+        if (on != s.shownBlink) {
+            s.shownBlink = on;
+            lv_obj_set_style_bg_color(s.card, on ? lv_color_mix(col, LVCOL_CARD, 70) : LVCOL_CARD, 0);
+        }
+    }
+}
+
+// The manual screen: an optional name, then h : m : s with steppers. True when
+// a timer was started.
+static bool timerManual(int slotIdx, lv_obj_t *backTo) {
+    Preferences p;
+    p.begin("timers", true);
+    uint32_t sec = p.getUInt("manual", 300);
+    p.end();
+    if (sec < 1 || sec > TMR_MAX_SEC) sec = 300;
+    int h = sec / 3600, m = sec / 60 % 60, sc = sec % 60;
+    char name[TMR_NAME_BYTES] = "";
+    bool kept = false, started = false;
+
+    lv_obj_t *scr = lv_obj_create(nullptr);
+    lv_obj_set_style_bg_color(scr, LVCOL_BG, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lvglAddHeader(scr, t(I18N_TMR_MANUAL), timerCb, nullptr, TMR_UD(TA_BACK, 0));
+
+    lv_obj_t *nameB = toolButton(scr, 12, 52, 456, 40, "", LVCOL_CARD, timerCb, TMR_UD(TA_NAME, 0));
+    lv_obj_t *nameL = lv_obj_get_child(nameB, 0);
+    lv_label_set_long_mode(nameL, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(nameL, 420);
+    lv_obj_align(nameL, LV_ALIGN_LEFT_MID, 6, 0);
+
+    const LangKey unitKey[3] = { I18N_TMR_HOURS, I18N_TMR_MINUTES, I18N_TMR_SECONDS };
+    lv_obj_t *val[3];
+    for (int k = 0; k < 3; k++) {
+        int cx = 40 + k * 145;
+        lv_obj_t *u = timerLabel(scr, &gFont14, LVCOL_MUTED, 110);
+        lv_label_set_text(u, t(unitKey[k]));
+        lv_obj_set_pos(u, cx, 98);
+        toolButton(scr, cx + 22, 118, 66, 38, LV_SYMBOL_PLUS,  LVCOL_CARD, timerCb, TMR_UD(TA_HUP + 2 * k, 0), true);
+        val[k] = timerLabel(scr, &lv_font_montserrat_40, LVCOL_TEXT, 110);
+        lv_obj_set_pos(val[k], cx, 158);
+        toolButton(scr, cx + 22, 204, 66, 38, LV_SYMBOL_MINUS, LVCOL_CARD, timerCb, TMR_UD(TA_HDN + 2 * k, 0), true);
+        if (k < 2) {
+            lv_obj_t *colon = timerLabel(scr, &lv_font_montserrat_40, LVCOL_FAINT, 30);
+            lv_label_set_text(colon, ":");
+            lv_obj_set_pos(colon, cx + 125, 154);
+        }
+    }
+    lv_obj_t *keepB = toolButton(scr, 12, 252, 150, 58, "", LVCOL_CARD, timerCb, TMR_UD(TA_KEEP, 0));
+    lv_obj_t *keepL = lv_obj_get_child(keepB, 0);
+    lv_obj_t *goB   = toolButton(scr, 172, 252, 296, 58, "", LVCOL_GREEN, timerCb, TMR_UD(TA_GO, 0));
+    lv_obj_t *goL   = lv_obj_get_child(goB, 0);
+    lv_obj_set_style_text_font(goL, &gFont20, 0);
+
+    auto paint = [&]() {
+        if (name[0]) { toolSetText(nameL, name); lv_obj_set_style_text_color(nameL, LVCOL_TEXT, 0); }
+        else         { toolSetText(nameL, t(I18N_TMR_NAME)); lv_obj_set_style_text_color(nameL, LVCOL_MUTED, 0); }
+        char b[24];
+        snprintf(b, sizeof b, "%d", h);   toolSetText(val[0], b);
+        snprintf(b, sizeof b, "%02d", m); toolSetText(val[1], b);
+        snprintf(b, sizeof b, "%02d", sc); toolSetText(val[2], b);
+        uint32_t s = h * 3600 + m * 60 + sc;
+        char d[16]; timerFmt(s, d, sizeof d);
+        snprintf(b, sizeof b, LV_SYMBOL_PLAY "  %s", d);
+        toolSetText(goL, b);
+        if (s == 0) lv_obj_add_state(goB, LV_STATE_DISABLED); else lv_obj_clear_state(goB, LV_STATE_DISABLED);
+        char kb[48];
+        snprintf(kb, sizeof kb, "%s%s", kept ? LV_SYMBOL_OK " " : "", t(I18N_TMR_KEEP));
+        toolSetText(keepL, kb);
+    };
+    paint();
+
+    lv_scr_load(scr);
+    lvglDrainPress(800);
+    sTmrAct = TA_NONE;
+
+    for (;;) {
+        lv_timer_handler(); delay(5);
+        wifiKeepAlive();
+        toolSleepTick(!timersTick(), NAN);
+        int a = sTmrAct;
+        if (a == TA_NONE) continue;
+        sTmrAct = TA_NONE;
+        if (a == TA_BACK) break;
+        switch (a) {
+            case TA_HUP: h = h < 9 ? h + 1 : 0;   break;
+            case TA_HDN: h = h > 0 ? h - 1 : 9;   break;
+            case TA_MUP: m = m < 59 ? m + 1 : 0;  break;
+            case TA_MDN: m = m > 0 ? m - 1 : 59;  break;
+            case TA_SUP: sc = sc < 59 ? sc + 1 : 0; break;
+            case TA_SDN: sc = sc > 0 ? sc - 1 : 59; break;
+            case TA_NAME: {
+                String r = tsKeyboard(t(I18N_TMR_NAME), false, scr, name, TMR_NAME_MAX);
+                if (!kbCancelled(r)) { timerCopyName(name, r.c_str(), r.length()); kept = false; }
+                break;
+            }
+            case TA_KEEP: {
+                uint32_t s = h * 3600 + m * 60 + sc;
+                if (s == 0 || kept) break;
+                // To the front of the list; the same name and time already in it moves up.
+                // A scratch list of its own: the screen underneath is showing gTmr->preset.
+                TimerPreset *list = new (std::nothrow) TimerPreset[TMR_MAX_PRESETS];
+                if (!list) break;
+                String txt = timerLoadListText();
+                int n = timerParseList(txt.c_str(), list + 1, TMR_MAX_PRESETS - 1);
+                for (int k = 1; k <= n; k++)
+                    if (list[k].sec == s && strcmp(list[k].name, name) == 0) {
+                        memmove(&list[k], &list[k + 1], (n - k) * sizeof(TimerPreset)); n--; break;
+                    }
+                list[0].sec = s;
+                strcpy(list[0].name, name);
+                kept = timerSaveListText(timerListText(list, n + 1));
+                delete[] list;
+                if (kept) playBeeps(1800, 60, 1);
+                break;
+            }
+            case TA_GO: {
+                uint32_t s = h * 3600 + m * 60 + sc;
+                if (s == 0) break;
+                Preferences w;
+                w.begin("timers", false);
+                w.putUInt("manual", s);
+                w.end();
+                timerStart(slotIdx, s, false, name);
+                started = true;
+                break;
+            }
+        }
+        if (started) break;
+        if (a >= TA_HUP && a <= TA_SDN) kept = false;
+        paint();
+    }
+
+    lv_scr_load(backTo);
+    lv_obj_del(scr);
+    lvglDrainPress(800);
+    return started;
+}
+
+// The ready-made times, the stopwatch and the manual setting, for one empty slot.
+static void timerAdd(int slotIdx, lv_obj_t *backTo) {
+    TimerPreset *list = gTmr->preset;
+    String txt = timerLoadListText();
+    gTmr->nPresets = timerParseList(txt.c_str(), list, TMR_MAX_PRESETS);
+    txt = String();
+    const int n = gTmr->nPresets;
+
+    Preferences p;
+    p.begin("timers", true);
+    uint32_t lastManual = p.getUInt("manual", 0);
+    p.end();
+
+    lv_obj_t *scr = lv_obj_create(nullptr);
+    lv_obj_set_style_bg_color(scr, LVCOL_BG, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lvglAddHeader(scr, t(I18N_TMR_NEW), timerCb, nullptr, TMR_UD(TA_BACK, 0));
+
+    // Two rows of four show at once; more scroll, with the rail on the right.
+    const bool rail = n > 8;
+    const int GAP = 8, CHIP_H = 58, LIST_Y = 56, LIST_H = 2 * CHIP_H + GAP;
+    const int listW = rail ? 416 : 456;
+    const int chipW = (listW - 3 * GAP) / 4;
+    lv_obj_t *lst = lv_obj_create(scr);
+    lv_obj_remove_style_all(lst);
+    lv_obj_set_size(lst, listW, LIST_H);
+    lv_obj_set_pos(lst, 12, LIST_Y);
+    lv_obj_set_scroll_dir(lst, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(lst, LV_SCROLLBAR_MODE_OFF);
+    for (int k = 0; k < n; k++) {
+        lv_obj_t *b = toolButton(lst, (k % 4) * (chipW + GAP), (k / 4) * (CHIP_H + GAP), chipW, CHIP_H,
+                                 "", LVCOL_CARD, timerCb, TMR_UD(TA_PRESET, k));
+        lv_obj_t *l = lv_obj_get_child(b, 0);
+        char d[16]; timerFmtShort(list[k].sec, d, sizeof d);
+        if (list[k].name[0]) {
+            lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+            lv_obj_set_width(l, chipW - 10);
+            lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_style_text_font(l, &gFont14, 0);
+            lv_label_set_text(l, list[k].name);
+            lv_obj_align(l, LV_ALIGN_CENTER, 0, -10);
+            lv_obj_t *dl = timerLabel(b, &gFont14, LVCOL_MUTED, chipW - 10);
+            lv_label_set_text(dl, d);
+            lv_obj_align(dl, LV_ALIGN_CENTER, 0, 11);
+        } else {
+            lv_obj_set_style_text_font(l, &gFont20, 0);
+            lv_label_set_text(l, d);
+        }
+    }
+    if (rail) lvglAddScrollRail(scr, lst, LIST_Y, LIST_Y + LIST_H, CHIP_H + GAP);
+
+    // Where the list is edited, in white so it reads across the room.
+    String url = timerEditUrl();
+    if (url.length()) {
+        lv_obj_t *u = toolLabel(scr, 186, &gFont14, LVCOL_TEXT);
+        lv_label_set_long_mode(u, LV_LABEL_LONG_WRAP);
+        lv_label_set_text(u, (String(t(I18N_TMR_EDIT_AT)) + " " + url).c_str());
+    }
+
+    lv_obj_t *chronoB = toolButton(scr, 12, 226, 224, 84, "", LVCOL_CARD, timerCb, TMR_UD(TA_CHRONO, 0));
+    lv_obj_set_style_border_color(chronoB, LVCOL_ORANGE, 0);
+    lv_obj_t *cl = lv_obj_get_child(chronoB, 0);
+    lv_obj_set_style_text_font(cl, &gFont20, 0);
+    lv_label_set_text(cl, (String(LV_SYMBOL_REFRESH "  ") + t(I18N_TMR_CHRONO)).c_str());
+    lv_obj_t *manB = toolButton(scr, 244, 226, 224, 84, "", LVCOL_ACCENT, timerCb, TMR_UD(TA_MANUAL, 0));
+    lv_obj_t *ml = lv_obj_get_child(manB, 0);
+    lv_obj_set_style_text_font(ml, &gFont20, 0);
+    lv_label_set_text(ml, (String(LV_SYMBOL_EDIT "  ") + t(I18N_TMR_MANUAL)).c_str());
+    lv_obj_align(ml, LV_ALIGN_CENTER, 0, lastManual ? -10 : 0);
+    if (lastManual) {
+        char d[16]; timerFmt(lastManual, d, sizeof d);
+        lv_obj_t *lm = timerLabel(manB, &gFont14, lv_color_hex(0xDFE9FF), 200);
+        lv_label_set_text(lm, d);
+        lv_obj_align(lm, LV_ALIGN_CENTER, 0, 16);
+    }
+
+    lv_scr_load(scr);
+    lvglDrainPress(800);
+    sTmrAct = TA_NONE;
+
+    bool done = false;
+    while (!done) {
+        lv_timer_handler(); delay(5);
+        wifiKeepAlive();
+        toolSleepTick(!timersTick(), NAN);
+        int a = sTmrAct, arg = sTmrArg;
+        if (a == TA_NONE) continue;
+        sTmrAct = TA_NONE;
+        switch (a) {
+            case TA_BACK:   done = true; break;
+            case TA_PRESET:
+                if (arg < n) { timerStart(slotIdx, list[arg].sec, false, list[arg].name); done = true; }
+                break;
+            case TA_CHRONO: timerStart(slotIdx, 0, true, ""); done = true; break;
+            case TA_MANUAL: done = timerManual(slotIdx, scr); break;
+        }
+    }
+
+    lv_scr_load(backTo);
+    lv_obj_del(scr);
+    lvglDrainPress(800);
+}
+
+static void runTimers(lv_obj_t *backTo) {
+    gTmr = new (std::nothrow) TimerTool();
+    if (!gTmr) { Serial.println("[TMR] out of memory"); return; }
+    for (int i = 0; i < TMR_SLOTS; i++) gTmr->slot[i].state = TMS_EMPTY;
+
+    // The list's page is served by the async server; opening the tool straight
+    // from the start menu can come before loop() has started it.
+    if (ENABLE_HTTP_SERVER && gWebServerStartPending && !gWebServerStarted && !gWebServerStarting) {
+        gWebServerStarting = true;
+        startWebServerNow();
+    }
+
+    lv_obj_t *scr = lv_obj_create(nullptr);
+    lv_obj_set_style_bg_color(scr, LVCOL_BG, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lvglAddHeader(scr, t(I18N_TOOL_TIMER), timerCb, nullptr, TMR_UD(TA_BACK, 0));
+    for (int i = 0; i < TMR_SLOTS; i++) timerBuildSlot(scr, i);
+    for (int i = 0; i < TMR_SLOTS; i++) timerPaintSlot(i, millis());
+
+    lv_scr_load(scr);
+    lvglDrainPress(800);
+    sTmrAct = TA_NONE;
+
+    uint32_t lastPaint = 0;
+    for (;;) {
+        lv_timer_handler(); delay(5);
+        wifiKeepAlive();
+        bool ringing = timersTick();
+        toolSleepTick(!ringing, NAN);
+        uint32_t now = millis();
+        int a = sTmrAct, i = sTmrArg;
+        if (a != TA_NONE) {
+            sTmrAct = TA_NONE;
+            if (a == TA_BACK) {
+                bool busy = false;
+                for (int k = 0; k < TMR_SLOTS; k++) busy |= gTmr->slot[k].state != TMS_EMPTY;
+                if (!busy || lvglAskYesNo(t(I18N_TMR_QUIT), t(I18N_TMR_QUIT_SUB))) break;
+                continue;
+            }
+            if (i >= TMR_SLOTS) continue;
+            TimerSlot &s = gTmr->slot[i];
+            switch (a) {
+                case TA_ADD:
+                    if (s.state == TMS_EMPTY) timerAdd(i, scr);
+                    break;
+                case TA_PAUSE:
+                    if (s.state == TMS_RUN) {
+                        s.accMs = s.chrono ? timerElapsedMs(s, now) : timerLeftMs(s, now);
+                        s.state = TMS_PAUSE;
+                    } else if (s.state == TMS_PAUSE) {
+                        s.markMs = now;
+                        s.state = TMS_RUN;
+                    }
+                    break;
+                case TA_STOP:
+                case TA_OK:
+                    s.state = TMS_EMPTY;
+                    s.name[0] = '\0';
+                    break;
+                case TA_PLUS1:
+                    if (s.state == TMS_DONE) {
+                        char keep[TMR_NAME_BYTES]; strcpy(keep, s.name);
+                        timerStart(i, 60, false, keep);
+                    }
+                    break;
+            }
+            lastPaint = 0;
+        }
+        if (now - lastPaint >= 100) {
+            lastPaint = now;
+            for (int k = 0; k < TMR_SLOTS; k++) timerPaintSlot(k, millis());
+        }
+    }
+
+    lv_scr_load(backTo);
+    lv_obj_del(scr);
+    delete gTmr;
+    gTmr = nullptr;
+    lvglDrainPress(800);
+}
+
 struct LauncherTool {
     const char *id;                     // stable, in NVS and over USB / HTTP
     const char *fixedName;              // language-neutral name, or nullptr to use nameKey
@@ -9702,6 +10368,7 @@ static const LauncherTool kLauncherTools[] = {
     { "presse",     nullptr,       I18N_TOOL_PRESSE,  I18N_TOOL_PRESSE_SUB,     LV_SYMBOL_CHARGE,   0xE24B4A, runPresseMemo },
     { "count",      nullptr,       I18N_TOOL_COUNT,   I18N_TOOL_COUNT_SUB,      LV_SYMBOL_LIST,     0x9B59B6, runPartsCounter },
     { "mix",        nullptr,       I18N_TOOL_MIX,     I18N_TOOL_MIX_SUB,        LV_SYMBOL_SHUFFLE,  0x1ABC9C, runResinMix },
+    { "timer",      nullptr,       I18N_TOOL_TIMER,   I18N_TOOL_TIMER_SUB,      LV_SYMBOL_BELL,     0xF2B705, runTimers },
 };
 static const int kLauncherToolCount = sizeof(kLauncherTools) / sizeof(kLauncherTools[0]);
 static_assert(sizeof(kLauncherTools) / sizeof(kLauncherTools[0]) <= 32, "the tool masks are 32 bits");
@@ -13805,6 +14472,51 @@ void setupWebServer() {
             request->beginResponse_P(200, "text/html; charset=utf-8", PRESSE_PAGE);
         r->addHeader("Cache-Control", "no-store");
         request->send(r);
+    });
+    // Timer tool (§9, runTimers): its ready-made times. NVS only, through the
+    // timer helpers' own Preferences objects -- never the tool's open state.
+    // The tool reads the list each time its "new timer" screen opens.
+    // /api/timers/reset is registered first for the reason /api/presse/reset is.
+    server.on("/minuterie", HTTP_GET, [](AsyncWebServerRequest *request){
+        AsyncWebServerResponse *r =
+            request->beginResponse_P(200, "text/html; charset=utf-8", TIMER_PAGE);
+        r->addHeader("Cache-Control", "no-store");
+        request->send(r);
+    });
+    server.on("/api/timers/reset", HTTP_POST, [](AsyncWebServerRequest *request){
+        timerResetList();
+        request->send(200, "text/plain", "OK");
+    });
+    server.on("/api/timers", HTTP_GET, [](AsyncWebServerRequest *request){
+        TimerPreset *list = new (std::nothrow) TimerPreset[TMR_MAX_PRESETS];
+        if (!list) { request->send(500, "text/plain", "out of memory"); return; }
+        String txt = timerLoadListText();
+        int n = timerParseList(txt.c_str(), list, TMR_MAX_PRESETS);
+        DynamicJsonDocument doc(4096);
+        doc["max"] = TMR_MAX_PRESETS;
+        doc["nameMax"] = TMR_NAME_MAX;
+        JsonArray arr = doc.createNestedArray("presets");
+        for (int i = 0; i < n; i++) {
+            JsonObject o = arr.createNestedObject();
+            o["name"] = (const char *)list[i].name;
+            o["s"] = list[i].sec;
+        }
+        delete[] list;
+        String out;
+        serializeJson(doc, out);
+        AsyncWebServerResponse *r = request->beginResponse(200, "application/json", out);
+        r->addHeader("Cache-Control", "no-store");
+        request->send(r);
+    });
+    server.on("/api/timers", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!request->hasParam("list", true)) { request->send(400, "text/plain", "list is required"); return; }
+        TimerPreset *list = new (std::nothrow) TimerPreset[TMR_MAX_PRESETS];
+        if (!list) { request->send(500, "text/plain", "out of memory"); return; }
+        // Parsed and written back, so only well-formed lines are ever stored.
+        int n = timerParseList(request->getParam("list", true)->value().c_str(), list, TMR_MAX_PRESETS);
+        bool ok = timerSaveListText(timerListText(list, n));
+        delete[] list;
+        request->send(ok ? 200 : 500, "text/plain", ok ? "OK" : "write failed");
     });
     // The start menu's tools, from a browser (tools_page.h).
     server.on("/tools", HTTP_GET, [](AsyncWebServerRequest *request){

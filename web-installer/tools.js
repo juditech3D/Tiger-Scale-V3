@@ -88,6 +88,14 @@ window.TOOLS = [
       fr: 'Résine ou époxy en deux parties, au gramme : règle le rapport (100 : 45…), verse A, puis la balance dit combien de B ajouter, avec une barre et un bip.',
       en: 'Two-part resin or epoxy, to the gram: set the ratio (100 : 45…), pour A, then the scale tells how much B to add, with a bar and a beep.'
     }
+  },
+  {
+    id: 'timer', color: '#f2b705', icon: 'timer',
+    name: { fr: 'Minuterie', en: 'Timer' },
+    desc: {
+      fr: 'Trois minuteries en même temps, à rebours ou en chrono, chacune avec son nom. Les temps tout prêts se règlent depuis un navigateur.',
+      en: 'Three timers at once, countdown or stopwatch, each with its own name. The ready-made times are set from a browser.'
+    }
   }
 ];
 
@@ -99,5 +107,6 @@ window.TOOL_ICONS = {
   gauge: '<path d="M4.5 17a8.5 8.5 0 1 1 15 0"/><path d="M12 13.5 15.5 9"/><circle cx="12" cy="14" r="1.2"/>',
   press: '<path d="M5 4h14v4H5z"/><path d="M12 8v5"/><path d="M4 18h16v2.5H4z"/><path d="M8 13h8l1 5H7z"/>',
   count: '<path d="M4 9h16l-1.5 10.5h-13z"/><circle cx="9" cy="6" r="1.6"/><circle cx="14.5" cy="5" r="1.6"/><path d="M10 13h4M12 11v4"/>',
-  mix:   '<path d="M6 4h5l-1 15H7z"/><path d="M13 4h5l-1 15h-3z"/><path d="M6.5 10h4M13.5 12h4"/>'
+  mix:   '<path d="M6 4h5l-1 15H7z"/><path d="M13 4h5l-1 15h-3z"/><path d="M6.5 10h4M13.5 12h4"/>',
+  timer: '<circle cx="12" cy="13.5" r="7.5"/><path d="M12 13.5V9.5M10 3h4M12 3v3"/>'
 };

@@ -87,6 +87,8 @@ the scale then updates over the air from the same place. The official firmware i
     right amount
   - **Calibration & test**: raw load-cell readings, wiring diagnosis, calibration wizard
   - **Heat press memo**: temperatures and times per product, timer with alarm, editor in the browser
+  - **Timer**: three timers at once, countdown or stopwatch, each with its own name; ready-made times
+    edited in the browser (`/minuterie`) or kept from the scale
 - **Your menu, your order**: the eye button hides, shows and reorders the tools.
 - **Screen sleep in every tool**, never in the middle of a weighing.
 - **RFID sensitivity** (receive gain, 33 to 48 dB) beside the power level in Settings > RFID, also chosen

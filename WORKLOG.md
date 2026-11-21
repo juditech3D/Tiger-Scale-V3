@@ -18,6 +18,19 @@ log lives in git history and the synthesised entry lives in the changelog.
 
 ---
 
+### Added
+
+- Timer tool in the start menu (`runTimers`, id `timer`): three timers side by
+  side, each a countdown or a stopwatch with an optional name typed on the
+  scale's keyboard; ready-made times (8 built in) in NVS `timers`/`list`, edited
+  from `/minuterie` (`timer_page.h`, `GET/POST /api/timers`,
+  `POST /api/timers/reset`) or grown with "Keep" on the manual screen; a
+  finished timer rings and blinks in its own slot (OK / +1:00); leaving stops
+  every timer and frees the tool's state. `tsKeyboard()` gains optional
+  `backTo`, `initial` and `maxLen`. 18 i18n keys (`I18N_TOOL_TIMER`,
+  `I18N_TOOL_TIMER_SUB`, `I18N_TMR_*`), CJK faces regenerated,
+  `web-installer/tools.js` entry, README tool list.
+
 ### Fixed
 
 - The Pages deployment no longer fails on an anonymous GitHub API rate limit:
