@@ -23,26 +23,26 @@
 //   CONFIGURATION VARIABLES                               1892- 2325
 //   OLED DISPLAY                                          2326- 3109
 //   CLOUD PARSING                                         3110- 3124
-//   WIFI SETUP                                            3125-10873
-//   LITTLEFS                                             10874-11173
-//   FIREBASE AUTHENTICATION                              11174-12856
-//   WEBSOCKET                                            12857-12883
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12884-13018
-//   UNIFIED WS FRAME BUILDER                             13019-13143
-//   WEIGHT FILTER HELPERS                                13144-13158
-//   POST-SEND STATE RESET (shared by all send paths)     13159-13179
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13180-13283
-//   WEB SERVER                                           13284-14412
-//   CLOUD COMMUNICATION                                  14413-14595
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14596-15103
-//   mDNS                                                 15104-15141
-//   SCALE                                                15142-15312
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15313-15445
-//   RFID                                                 15446-16528
-//   OTA — Over-the-air firmware + filesystem update    16529-17208
-//   LVGL bridge + main weigh screen                      17209-18172
-//   Remote live view: the screen out, taps back in       18173-19022
-//   SETUP & LOOP                                         19023-20311
+//   WIFI SETUP                                            3125-11115
+//   LITTLEFS                                             11116-11415
+//   FIREBASE AUTHENTICATION                              11416-13098
+//   WEBSOCKET                                            13099-13125
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 13126-13260
+//   UNIFIED WS FRAME BUILDER                             13261-13385
+//   WEIGHT FILTER HELPERS                                13386-13400
+//   POST-SEND STATE RESET (shared by all send paths)     13401-13421
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13422-13525
+//   WEB SERVER                                           13526-14654
+//   CLOUD COMMUNICATION                                  14655-14837
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14838-15345
+//   mDNS                                                 15346-15383
+//   SCALE                                                15384-15554
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15555-15687
+//   RFID                                                 15688-16770
+//   OTA — Over-the-air firmware + filesystem update    16771-17450
+//   LVGL bridge + main weigh screen                      17451-18414
+//   Remote live view: the screen out, taps back in       18415-19264
+//   SETUP & LOOP                                         19265-20553
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -7892,6 +7892,220 @@ static void toolSetText(lv_obj_t *l, const char *txt) {
 }
 
 // ---------------------------------------------------------------------------
+// Tool help cards
+// ---------------------------------------------------------------------------
+// A "?" at the right end of a tool's header opens three cards: what the tool
+// is for, what it can do, how to use it. The texts are three consecutive i18n
+// keys (I18N_HELP_<TOOL>_1..3). The cards open by themselves when the tool
+// opens, until "Don't show again" is ticked on the last card; that choice is
+// kept per tool id ("config"/"hlp_<id>") and Settings -> "Show tool help
+// again" clears it for every tool.
+//
+// The cards live on lv_layer_top(), so they cover the tool without the tool
+// knowing: its loop keeps calling lv_timer_handler(), which is all they need.
+// Nothing is allocated until they open, and closing them deletes every object.
+// If the tool's screen is deleted with the cards still open, the "?" button's
+// DELETE event takes them too.
+//
+//   toolHelpAttach(scr, "pod", I18N_HELP_POD_1, 0xF5A623, autoOpen)
+//     id       : the tool's id in kLauncherTools (at most 11 characters)
+//     autoOpen : false for a screen the tool rebuilds while it stays open, so
+//                the cards open once per visit, not once per rebuild
+
+static struct {
+    lv_obj_t *layer = nullptr;          // the open cards, or nullptr
+    lv_obj_t *title, *body, *btnLbl, *never, *dots[3];
+    uint8_t  page;
+    uint16_t firstKey;
+    char     id[12];
+} gHelp;
+
+static String toolHelpPrefKey(const char *id) { return String("hlp_") + id; }
+
+static bool toolHelpMuted(const char *id) {
+    prefs.begin("config", true);
+    bool v = prefs.getBool(toolHelpPrefKey(id).c_str(), false);
+    prefs.end();
+    return v;
+}
+
+static void toolHelpClose() {
+    if (!gHelp.layer) return;
+    if (lv_obj_has_state(gHelp.never, LV_STATE_CHECKED)) {
+        prefs.begin("config", false);
+        prefs.putBool(toolHelpPrefKey(gHelp.id).c_str(), true);
+        prefs.end();
+    }
+    lv_obj_t *l = gHelp.layer;
+    gHelp.layer = nullptr;
+    lv_obj_del_async(l);     // called from the cards' own event callbacks
+}
+
+static void toolHelpShowPage() {
+    static const LangKey kTitles[3] = { I18N_HELP_WHAT, I18N_HELP_CAN, I18N_HELP_HOW };
+    uint8_t p = gHelp.page;
+    lv_label_set_text(gHelp.title, t(kTitles[p]));
+    lv_label_set_text(gHelp.body, t((LangKey)(gHelp.firstKey + p)));
+    lv_obj_scroll_to_y(lv_obj_get_parent(gHelp.body), 0, LV_ANIM_OFF);
+    lv_label_set_text(gHelp.btnLbl, t(p < 2 ? I18N_HELP_NEXT : I18N_HELP_GOT_IT));
+    for (int i = 0; i < 3; i++)
+        lv_obj_set_style_bg_color(gHelp.dots[i], i == p ? LVCOL_ACCENT : LVCOL_FAINT, 0);
+    if (p == 2) lv_obj_clear_flag(gHelp.never, LV_OBJ_FLAG_HIDDEN);
+    else        lv_obj_add_flag(gHelp.never, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void toolHelpOpen(const char *id, uint16_t firstKey, uint32_t color) {
+    if (gHelp.layer) return;
+    strlcpy(gHelp.id, id, sizeof gHelp.id);
+    gHelp.firstKey = firstKey;
+    gHelp.page = 0;
+
+    // Full-screen shade: a tap outside the card closes it.
+    lv_obj_t *dim = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(dim);
+    lv_obj_set_size(dim, 480, 320);
+    lv_obj_set_style_bg_color(dim, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(dim, LV_OPA_60, 0);
+    lv_obj_add_flag(dim, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(dim, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(dim, [](lv_event_t *) { toolHelpClose(); }, LV_EVENT_CLICKED, nullptr);
+    gHelp.layer = dim;
+
+    lv_obj_t *card = lv_obj_create(dim);
+    lv_obj_remove_style_all(card);
+    lv_obj_set_size(card, 400, 248);
+    lv_obj_set_pos(card, 40, 36);
+    lv_obj_set_style_bg_color(card, lv_color_hex(0x171C27), 0);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(card, LVCOL_BORDER, 0);
+    lv_obj_set_style_border_width(card, 1, 0);
+    lv_obj_set_style_radius(card, 14, 0);
+    lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);       // a tap on the card stays on it
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    // Swipe left / right turns the cards, like Next. The card keeps the
+    // gesture instead of passing it up to the shade.
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(card, [](lv_event_t *) {
+        lv_dir_t d = lv_indev_get_gesture_dir(lv_indev_get_act());
+        if (d == LV_DIR_LEFT && gHelp.page < 2)       { gHelp.page++; toolHelpShowPage(); }
+        else if (d == LV_DIR_RIGHT && gHelp.page > 0) { gHelp.page--; toolHelpShowPage(); }
+    }, LV_EVENT_GESTURE, nullptr);
+
+    lv_obj_t *dot = lv_obj_create(card);
+    lv_obj_remove_style_all(dot);
+    lv_obj_set_size(dot, 12, 12);
+    lv_obj_set_pos(dot, 18, 20);
+    lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(dot, lv_color_hex(color), 0);
+    lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(dot, LV_OBJ_FLAG_CLICKABLE);
+
+    gHelp.title = lv_label_create(card);
+    lv_obj_set_width(gHelp.title, 344);
+    lv_label_set_long_mode(gHelp.title, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(gHelp.title, &gFont20, 0);
+    lv_obj_set_style_text_color(gHelp.title, LVCOL_TEXT, 0);
+    lv_obj_set_pos(gHelp.title, 38, 12);
+
+    // The body scrolls if a language runs longer than the box; drag is
+    // vertical only, so a sideways swipe still turns the card.
+    lv_obj_t *box = lv_obj_create(card);
+    lv_obj_remove_style_all(box);
+    lv_obj_set_size(box, 364, 132);
+    lv_obj_set_pos(box, 18, 44);
+    lv_obj_set_scroll_dir(box, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_add_flag(box, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    gHelp.body = lv_label_create(box);
+    lv_obj_set_width(gHelp.body, 356);
+    lv_label_set_long_mode(gHelp.body, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_font(gHelp.body, &gFont14, 0);
+    lv_obj_set_style_text_color(gHelp.body, lv_color_hex(0xC9CFDB), 0);
+    lv_obj_set_style_text_line_space(gHelp.body, 3, 0);
+
+    for (int i = 0; i < 3; i++) {
+        lv_obj_t *d = lv_obj_create(card);
+        lv_obj_remove_style_all(d);
+        lv_obj_set_size(d, 8, 8);
+        lv_obj_set_pos(d, 18 + i * 14, 206);
+        lv_obj_set_style_radius(d, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
+        lv_obj_clear_flag(d, LV_OBJ_FLAG_CLICKABLE);
+        gHelp.dots[i] = d;
+    }
+
+    gHelp.never = lv_checkbox_create(card);
+    lv_checkbox_set_text(gHelp.never, t(I18N_HELP_NEVER));
+    lv_obj_set_width(gHelp.never, 200);
+    lv_obj_set_style_text_font(gHelp.never, &gFont14, 0);
+    lv_obj_set_style_text_color(gHelp.never, lv_color_hex(0xC9CFDB), 0);
+    lv_obj_set_style_bg_color(gHelp.never, LVCOL_CARD, LV_PART_INDICATOR);
+    lv_obj_set_style_border_color(gHelp.never, LVCOL_MUTED, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(gHelp.never, LVCOL_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_border_color(gHelp.never, LVCOL_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_ext_click_area(gHelp.never, 8);
+    lv_obj_set_pos(gHelp.never, 62, 199);
+
+    lv_obj_t *btn = lv_btn_create(card);
+    lv_obj_set_size(btn, 120, 44);
+    lv_obj_set_pos(btn, 262, 190);
+    lv_obj_set_style_bg_color(btn, LVCOL_ACCENT, 0);
+    lv_obj_set_style_radius(btn, 10, 0);
+    lv_obj_set_style_shadow_width(btn, 0, 0);
+    lv_obj_add_event_cb(btn, [](lv_event_t *) {
+        if (gHelp.page < 2) { gHelp.page++; toolHelpShowPage(); }
+        else                toolHelpClose();
+    }, LV_EVENT_CLICKED, nullptr);
+    gHelp.btnLbl = lv_label_create(btn);
+    lv_obj_set_style_text_font(gHelp.btnLbl, &gFont16, 0);
+    lv_obj_set_style_text_color(gHelp.btnLbl, LVCOL_TEXT, 0);
+    lv_obj_center(gHelp.btnLbl);
+
+    toolHelpShowPage();
+}
+
+// Called only when the button is created, which is when the tool's screen is
+// built, so the strings it keeps are copied, not borrowed.
+static void toolHelpAttach(lv_obj_t *scr, const char *id, LangKey firstKey,
+                           uint32_t color, bool autoOpen = true) {
+    struct HelpRef { char id[12]; uint16_t key; uint32_t color; };
+    HelpRef *ref = (HelpRef *)lv_mem_alloc(sizeof(HelpRef));
+    if (!ref) return;
+    strlcpy(ref->id, id, sizeof ref->id);
+    ref->key = firstKey;
+    ref->color = color;
+
+    // Created after the header, so it sits above the header's "back" band.
+    lv_obj_t *b = lv_btn_create(scr);
+    lv_obj_set_size(b, 36, 36);
+    lv_obj_set_pos(b, 434, 6);
+    lv_obj_set_ext_click_area(b, 6);
+    lv_obj_set_style_bg_opa(b, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_color(b, LVCOL_MUTED, 0);
+    lv_obj_set_style_border_width(b, 2, 0);
+    lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_shadow_width(b, 0, 0);
+    lv_obj_set_user_data(b, ref);
+    lv_obj_t *q = lv_label_create(b);
+    lv_label_set_text(q, "?");
+    lv_obj_set_style_text_font(q, &gFont20, 0);
+    lv_obj_set_style_text_color(q, LVCOL_MUTED, 0);
+    lv_obj_center(q);
+    lv_obj_add_event_cb(b, [](lv_event_t *e) {
+        HelpRef *r = (HelpRef *)lv_obj_get_user_data(lv_event_get_target(e));
+        toolHelpOpen(r->id, r->key, r->color);
+    }, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(b, [](lv_event_t *e) {
+        lv_obj_t *o = lv_event_get_target(e);
+        lv_mem_free(lv_obj_get_user_data(o));
+        if (gHelp.layer) { lv_obj_del(gHelp.layer); gHelp.layer = nullptr; }
+    }, LV_EVENT_DELETE, nullptr);
+
+    if (autoOpen && !toolHelpMuted(id)) toolHelpOpen(id, firstKey, color);
+}
+
+
+// ---------------------------------------------------------------------------
 // Parts counter
 // ---------------------------------------------------------------------------
 // A step-by-step wizard, because a count is only as good as its reference:
@@ -7933,6 +8147,7 @@ static void runPartsCounter(lv_obj_t *backTo) {
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
     lvglAddHeader(scr, t(I18N_TOOL_COUNT), cb, nullptr, (intptr_t)CA_BACK);
+    toolHelpAttach(scr, "count", I18N_HELP_COUNT_1, 0x9B59B6);
 
     lv_obj_t *stepL = toolLabel(scr, 52, &gFont14, LVCOL_MUTED);
     lv_obj_t *instr = toolLabel(scr, 72, &gFont20, LVCOL_ACCENT);
@@ -8126,6 +8341,7 @@ static void runResinMix(lv_obj_t *backTo) {
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
     lvglAddHeader(scr, t(I18N_TOOL_MIX), cb, nullptr, (intptr_t)MA_BACK);
+    toolHelpAttach(scr, "mix", I18N_HELP_MIX_1, 0x1ABC9C);
 
     // Ratio stepper, top.
     lv_obj_t *rCap = lv_label_create(scr);
@@ -8297,6 +8513,7 @@ static void runParcelScale(lv_obj_t *backTo) {
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
     lvglAddHeader(scr, t(I18N_TOOL_PARCEL), cb, nullptr, (intptr_t)PS_BACK);
+    toolHelpAttach(scr, "parcel", I18N_HELP_PARCEL_1, 0xE8821E);
 
     lv_obj_t *wLbl = lv_label_create(scr);
     lv_label_set_text(wLbl, "-- g");
@@ -8387,6 +8604,7 @@ static void runLoadCellTest(lv_obj_t *backTo) {
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
     lvglAddHeader(scr, t(I18N_TOOL_CALTEST), cb, nullptr, (intptr_t)LC_BACK);
+    toolHelpAttach(scr, "caltest", I18N_HELP_CALTEST_1, 0x3BA55D);
 
     // Four reading cards, two by two: title muted on top, value below. The
     // top-right corner of a card carries a secondary figure when it has one.
@@ -8781,6 +8999,7 @@ static void runPresseMemo(lv_obj_t *backTo) {
     };
 
     int level = 0, cat = 0, item = 0;       // 0 categories, 1 products, 2 detail
+    bool helpOffered = false;
     lv_obj_t *cur = nullptr;                // this tool's screen on display
 
     for (;;) {
@@ -8800,6 +9019,10 @@ static void runPresseMemo(lv_obj_t *backTo) {
 
         if (level == 0) {
             lvglAddHeader(scr, t(I18N_TOOL_PRESSE), cb, nullptr, (intptr_t)PM_BACK);
+            // The category screen is rebuilt on every return to it: the
+            // cards open by themselves on the first build only.
+            toolHelpAttach(scr, "presse", I18N_HELP_PRESSE_1, 0xE24B4A, !helpOffered);
+            helpOffered = true;
             bool defaults = doc["settings"]["defaults"] | false;
             String url = presseEditUrl();
             // Footer under the tiles: the indicative-values note, on two lines
@@ -9398,6 +9621,7 @@ static void runTigerPod(lv_obj_t *backTo) {
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
     const char *podName = "TigerPOD";            // the product's name, not UI text
     lvglAddHeader(scr, podName, cb, nullptr, (intptr_t)POD_BACK);
+    toolHelpAttach(scr, "pod", I18N_HELP_POD_1, 0xF5A623);
 
     // Studio's state, a big dot and a line.
     lv_obj_t *status = lv_label_create(scr);
@@ -10186,7 +10410,7 @@ static void runLauncher() {
 // LVGL screen. Sub-screens (calibration wizard, hardware test, wifi setup,
 // etc.) are untouched raw-gfx and still called exactly as before.
 static void runSettingsMenu() {
-    enum SettingsAction { SA_NONE, SA_TOOLS, SA_WIFI, SA_FIREBASE, SA_VOLUME, SA_SCREEN, SA_CALIBRATE, SA_LANGUAGE, SA_HARDWARE, SA_LAN, SA_UPDATE, SA_REBOOT, SA_POWEROFF, SA_FACTORY, SA_BACK };
+    enum SettingsAction { SA_NONE, SA_TOOLS, SA_HELP, SA_WIFI, SA_FIREBASE, SA_VOLUME, SA_SCREEN, SA_CALIBRATE, SA_LANGUAGE, SA_HARDWARE, SA_LAN, SA_UPDATE, SA_REBOOT, SA_POWEROFF, SA_FACTORY, SA_BACK };
     static SettingsAction sAction;
     lv_obj_t *prevScr = nullptr;
     lv_coord_t savedScrollY = 0;   // survives sub-screen round-trips, not menu exits
@@ -10428,6 +10652,8 @@ static void runSettingsMenu() {
         // First row: the way back to the start menu, where the other tools
         // (parcel scale, calibration & test) live.
         makeRow(CI_GLYPH, LV_SYMBOL_LIST, LVCOL_TEXT, t(I18N_TOOLS_MENU), String(""), SA_TOOLS);
+        // Every tool's "?" cards open by themselves again (toolHelpAttach).
+        makeRow(CI_GLYPH, "?", LVCOL_TEXT, t(I18N_HELP_RESHOW), String(""), SA_HELP);
 
         String wifiVal = wifiConnected ? WiFi.SSID() : String(t(I18N_NO_WIFI));
         makeRow(CI_GLYPH, LV_SYMBOL_WIFI, wifiConnected ? LVCOL_GREEN : LVCOL_RED,
@@ -10610,6 +10836,22 @@ static void runSettingsMenu() {
         if (sAction == SA_TOOLS) { gLauncherRequested = true; gLauncherForce = true; lv_scr_load(lvScreen); lv_obj_del(scr); break; }
 
         switch (sAction) {
+            case SA_HELP: {
+                prefs.begin("config", false);
+                for (int i = 0; i < kLauncherToolCount; i++)
+                    prefs.remove(toolHelpPrefKey(kLauncherTools[i].id).c_str());
+                prefs.end();
+                lv_obj_t *hcol;
+                lv_obj_t *hscr = lvglCenteredScreen(&hcol);
+                lvglAddStatusBadge(hcol, true);
+                lvglAddCenteredLabel(hcol, t(I18N_HELP_RESHOWN), LVCOL_TEXT, &gFont20);
+                lv_obj_t *prev = lv_scr_act();
+                lv_scr_load(hscr);
+                uint32_t t0 = millis(); while (millis() - t0 < 1500) { lv_timer_handler(); delay(30); }
+                lv_scr_load(prev);
+                lv_obj_del(hscr);
+                break;
+            }
             case SA_WIFI: {
                 bool ok = wifiTouchConfigure();
                 if (ok) {

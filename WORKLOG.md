@@ -18,6 +18,19 @@ log lives in git history and the synthesised entry lives in the changelog.
 
 ---
 
+### Added
+
+- Help cards on every tool: a "?" in the header of TigerPOD, Parcel scale,
+  Calibration & test, Heat press memo, Parts counter and Resin mixing opens
+  three cards (what it is for, what you can do, how to use it). They open by
+  themselves when the tool opens until "Don't show again" is ticked (per tool,
+  NVS `config`/`hlp_<id>`); Settings gains "Show tool help again", which clears
+  that for every tool. One shared component (`toolHelpAttach`, `toolHelpOpen`,
+  `toolHelpClose` in `TigerTagSplashESP32.ino`) on `lv_layer_top()`, built on
+  open and deleted on close. 26 i18n keys (`I18N_HELP_*`) in all 11 languages;
+  `LangKey` widened to `uint16_t` for headroom past 255 keys; CJK faces
+  regenerated for the new Chinese text.
+
 ### Fixed
 
 - The Pages deployment no longer fails on an anonymous GitHub API rate limit:
