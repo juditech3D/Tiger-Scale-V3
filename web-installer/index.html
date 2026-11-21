@@ -180,17 +180,31 @@
   .spot ul { margin:14px 0 0; padding-left:20px; color:var(--muted); }
   .spot li { margin:6px 0; }
   .spot li b { color:var(--fg); font-weight:600; }
-  .screen { background:#0b0d12; color:#f2f4f8; border-radius:14px; border:6px solid #262b35; padding:14px; font-size:14px; }
-  .screen .crumb { color:#a0a7b5; font-size:12px; margin-bottom:8px; }
-  .screen .crumb b { color:#2980b9; }
-  .screen .vals { display:grid; grid-template-columns:repeat(2, 1fr); gap:8px; }
-  .screen .v { background:#161a22; border-radius:10px; padding:8px 10px; }
-  .screen .v small { display:block; color:#a0a7b5; font-size:11px; }
-  .screen .v b { font-size:22px; }
-  .screen .timer { margin-top:10px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
-  .screen .bar { flex:1; height:8px; border-radius:4px; background:#262b35; overflow:hidden; }
-  .screen .bar i { display:block; width:62%; height:100%; background:#3fc8e4; }
-  .screen .go { background:#e24b4a; border-radius:8px; padding:6px 12px; font-weight:600; font-size:13px; }
+  /* The heat press memo's settings screen, drawn at the panel's 480x320
+     proportions: every size is in cqw (1cqw = 4.8 panel px), so it scales as one. */
+  .shot { min-width:0; }
+  .screen { container-type:inline-size; position:relative; aspect-ratio:3/2; border-radius:14px; border:6px solid #262b35; overflow:hidden;
+    background:linear-gradient(180deg,#3a1408,#0e0a10); color:#fff; font-family:Montserrat,system-ui,sans-serif; }
+  .screen .hd { position:absolute; left:0; top:0; width:100%; height:10cqw; display:flex; align-items:center; font-weight:600; }
+  .screen .hd .bk { width:11.7cqw; text-align:center; font-size:5.4cqw; }
+  .screen .hd .tt { font-size:4.2cqw; }
+  .screen .gl { position:absolute; box-sizing:border-box; background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.14); border-radius:2.9cqw; }
+  .screen .k { font-size:2.5cqw; color:rgba(255,255,255,.6); text-transform:uppercase; letter-spacing:.04em; }
+  .screen .ring { position:absolute; left:2.9cqw; top:12.1cqw; width:39.2cqw; height:39.2cqw; }
+  .screen .ring svg { position:absolute; inset:0; width:100%; height:100%; }
+  .screen .ring .mid { position:absolute; inset:0; display:grid; place-items:center; text-align:center; color:#4fd1ee; }
+  .screen .ring .mid b { display:block; font-size:10cqw; line-height:1; }
+  .screen .ring .mid small { display:block; font-size:2.9cqw; color:rgba(255,255,255,.6); margin-top:.8cqw; }
+  .screen .tc { left:45cqw; top:12.1cqw; width:52.5cqw; height:15.8cqw; padding:1.7cqw 2.9cqw; }
+  .screen .tc .v { font-size:8.3cqw; font-weight:700; line-height:1.1; color:#ff9a4d; }
+  .screen .tc .v small { font-size:4.2cqw; margin-left:.8cqw; }
+  .screen .mi { top:29.6cqw; width:25.2cqw; height:11.3cqw; padding:1.2cqw 2.1cqw; }
+  .screen .mi .v { font-size:3.3cqw; font-weight:700; }
+  .screen .nt { position:absolute; left:45cqw; top:42.5cqw; width:52.5cqw; font-size:2.7cqw; line-height:1.3; color:#ffd66b; }
+  .screen .go { position:absolute; left:2.5cqw; top:53.75cqw; width:95cqw; height:10.8cqw; border-radius:5.4cqw; display:grid; place-items:center;
+    background:#c8462f; font-size:4.2cqw; font-weight:700; }
+  .shot .soon-tag { display:inline-block; margin-top:10px; font-size:12px; font-weight:600; border-radius:999px; padding:2px 10px;
+    color:var(--muted); border:1px solid var(--line); }
   @media (max-width:760px) { .spot { grid-template-columns:1fr; padding:18px; } }
   ol.first { margin:12px 0 0; padding-left:22px; }
   ol.first li { margin:8px 0; color:var(--muted); }
@@ -250,15 +264,21 @@
             <li><b data-t="pr_l4b"></b> <span data-t="pr_l4"></span></li>
           </ul>
         </div>
-        <div class="screen" aria-hidden="true">
-          <div class="crumb"><b>DTF</b> › <span data-t="pr_ex_item"></span></div>
-          <div class="vals">
-            <div class="v"><small data-t="pr_ex_temp"></small><b>160 °C</b></div>
-            <div class="v"><small data-t="pr_ex_time"></small><b>15 s</b></div>
-            <div class="v"><small data-t="pr_ex_press"></small><b data-t="pr_ex_pressv"></b></div>
-            <div class="v"><small data-t="pr_ex_peel"></small><b data-t="pr_ex_peelv"></b></div>
+        <div class="shot">
+          <div class="screen" aria-hidden="true">
+            <div class="hd"><span class="bk">‹</span><span class="tt" data-t="pr_ex_item"></span></div>
+            <div class="ring">
+              <svg viewBox="0 0 188 188"><circle cx="94" cy="94" r="82" fill="rgba(0,0,0,.25)" stroke="rgba(255,255,255,.12)" stroke-width="12"/>
+                <circle cx="94" cy="94" r="82" fill="none" stroke="#4fd1ee" stroke-width="12" stroke-linecap="round" stroke-dasharray="515.2" stroke-dashoffset="309" transform="rotate(-90 94 94)"/></svg>
+              <div class="mid"><div><b>6</b><small data-t="pr_ex_sec"></small></div></div>
+            </div>
+            <div class="gl tc"><div class="k" data-t="pr_ex_temp"></div><div class="v">160<small>°C</small></div></div>
+            <div class="gl mi" style="left:45cqw"><div class="k" data-t="pr_ex_press"></div><div class="v" data-t="pr_ex_pressv"></div></div>
+            <div class="gl mi" style="left:72.3cqw"><div class="k" data-t="pr_ex_peel"></div><div class="v" data-t="pr_ex_peelv"></div></div>
+            <div class="nt" data-t="pr_ex_note"></div>
+            <div class="go" data-t="pr_ex_stop"></div>
           </div>
-          <div class="timer"><div class="bar"><i></i></div><span>0:06</span><span class="go" data-t="pr_ex_stop"></span></div>
+          <span class="soon-tag" data-t="pr_ex_soon"></span>
         </div>
       </div>
     </section>
@@ -425,6 +445,8 @@
       pr_l4b: 'Ta liste, à ta façon.', pr_l4: 'Elle se modifie depuis un navigateur, sur le réseau de l\'atelier. Une liste de départ est fournie.',
       pr_ex_item: 'Coton', pr_ex_temp: 'Température', pr_ex_time: 'Temps', pr_ex_press: 'Pression', pr_ex_pressv: 'Forte',
       pr_ex_peel: 'Pelage', pr_ex_peelv: 'Froid', pr_ex_stop: 'Arrêter',
+      pr_ex_sec: 'secondes', pr_ex_note: 'Repressage 10 s avec papier après pelage',
+      pr_ex_soon: 'Le nouvel écran du mémo presse, à venir',
       b_tested: 'Testé par l\'auteur sur la carte 3.5. La 3.5B n\'a pas encore été testée sur une vraie balance : si tu l\'essaies, ton retour est le bienvenu.',
       s5: 'Avant la première utilisation',
       s5_p: 'Deux réglages à faire une fois, sur la balance, avant de peser ou de lire des bobines :',
@@ -507,6 +529,8 @@
       pr_l4b: 'Your list, your way.', pr_l4: 'Edit it from a browser on the workshop network. A starter list is included.',
       pr_ex_item: 'Cotton', pr_ex_temp: 'Temperature', pr_ex_time: 'Time', pr_ex_press: 'Pressure', pr_ex_pressv: 'Firm',
       pr_ex_peel: 'Peel', pr_ex_peelv: 'Cold', pr_ex_stop: 'Stop',
+      pr_ex_sec: 'seconds', pr_ex_note: 'Press again 10 s with paper after peeling',
+      pr_ex_soon: 'The heat press memo\'s new screen, coming soon',
       b_tested: 'Tested by the author on the 3.5 board. The 3.5B has not been tested on a real scale yet: if you try it, your feedback is welcome.',
       s5: 'Before first use',
       s5_p: 'Two settings to make once, on the scale, before weighing or reading spools:',
