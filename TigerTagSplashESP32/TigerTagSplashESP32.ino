@@ -10186,17 +10186,17 @@ static void timerAdd(int slotIdx, lv_obj_t *backTo) {
 
     // Two rows of four show at once; more scroll, with the rail on the right.
     const bool rail = n > 8;
-    const int GAP = 8, CHIP_H = 58, LIST_Y = 56, LIST_H = 2 * CHIP_H + GAP;
+    const int kGap = 8, kChipH = 58, kListY = 56, kListH = 2 * kChipH + kGap;
     const int listW = rail ? 416 : 456;
-    const int chipW = (listW - 3 * GAP) / 4;
+    const int chipW = (listW - 3 * kGap) / 4;
     lv_obj_t *lst = lv_obj_create(scr);
     lv_obj_remove_style_all(lst);
-    lv_obj_set_size(lst, listW, LIST_H);
-    lv_obj_set_pos(lst, 12, LIST_Y);
+    lv_obj_set_size(lst, listW, kListH);
+    lv_obj_set_pos(lst, 12, kListY);
     lv_obj_set_scroll_dir(lst, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(lst, LV_SCROLLBAR_MODE_OFF);
     for (int k = 0; k < n; k++) {
-        lv_obj_t *b = toolButton(lst, (k % 4) * (chipW + GAP), (k / 4) * (CHIP_H + GAP), chipW, CHIP_H,
+        lv_obj_t *b = toolButton(lst, (k % 4) * (chipW + kGap), (k / 4) * (kChipH + kGap), chipW, kChipH,
                                  "", LVCOL_CARD, timerCb, TMR_UD(TA_PRESET, k));
         lv_obj_t *l = lv_obj_get_child(b, 0);
         char d[16]; timerFmtShort(list[k].sec, d, sizeof d);
@@ -10215,7 +10215,7 @@ static void timerAdd(int slotIdx, lv_obj_t *backTo) {
             lv_label_set_text(l, d);
         }
     }
-    if (rail) lvglAddScrollRail(scr, lst, LIST_Y, LIST_Y + LIST_H, CHIP_H + GAP);
+    if (rail) lvglAddScrollRail(scr, lst, kListY, kListY + kListH, kChipH + kGap);
 
     // Where the list is edited, in white so it reads across the room.
     String url = timerEditUrl();
