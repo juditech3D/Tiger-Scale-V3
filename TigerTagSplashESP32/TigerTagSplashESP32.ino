@@ -23,26 +23,26 @@
 //   CONFIGURATION VARIABLES                               1892- 2325
 //   OLED DISPLAY                                          2326- 3109
 //   CLOUD PARSING                                         3110- 3124
-//   WIFI SETUP                                            3125-10873
-//   LITTLEFS                                             10874-11173
-//   FIREBASE AUTHENTICATION                              11174-12856
-//   WEBSOCKET                                            12857-12883
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12884-13018
-//   UNIFIED WS FRAME BUILDER                             13019-13143
-//   WEIGHT FILTER HELPERS                                13144-13158
-//   POST-SEND STATE RESET (shared by all send paths)     13159-13179
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13180-13283
-//   WEB SERVER                                           13284-14412
-//   CLOUD COMMUNICATION                                  14413-14595
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14596-15103
-//   mDNS                                                 15104-15141
-//   SCALE                                                15142-15312
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15313-15445
-//   RFID                                                 15446-16528
-//   OTA — Over-the-air firmware + filesystem update    16529-17208
-//   LVGL bridge + main weigh screen                      17209-18172
-//   Remote live view: the screen out, taps back in       18173-19022
-//   SETUP & LOOP                                         19023-20311
+//   WIFI SETUP                                            3125-11076
+//   LITTLEFS                                             11077-11376
+//   FIREBASE AUTHENTICATION                              11377-13059
+//   WEBSOCKET                                            13060-13086
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 13087-13221
+//   UNIFIED WS FRAME BUILDER                             13222-13346
+//   WEIGHT FILTER HELPERS                                13347-13361
+//   POST-SEND STATE RESET (shared by all send paths)     13362-13382
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13383-13486
+//   WEB SERVER                                           13487-14681
+//   CLOUD COMMUNICATION                                  14682-14864
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14865-15372
+//   mDNS                                                 15373-15410
+//   SCALE                                                15411-15581
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15582-15714
+//   RFID                                                 15715-16797
+//   OTA — Over-the-air firmware + filesystem update    16798-17477
+//   LVGL bridge + main weigh screen                      17478-18441
+//   Remote live view: the screen out, taps back in       18442-19291
+//   SETUP & LOOP                                         19292-20580
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -8568,6 +8568,11 @@ static void runLoadCellTest(lv_obj_t *backTo) {
 #define PRESSE_PATH      "/presse.json"
 #define PRESSE_TMP_PATH  "/presse.tmp"
 #define PRESSE_MAX_BYTES 16384
+// The background (presseBgLoad below): its setting and its picture.
+#define PRESSE_BG_PATH      "/presse_bg.json"
+#define PRESSE_BGIMG_PATH   "/presse_bg.bin"
+#define PRESSE_BGIMG_TMP    "/presse_bg.tmp"
+#define PRESSE_BGIMG_BYTES  (480UL * 320UL * 2UL)
 
 // PresseJsonDocument (a JSON document in PSRAM) is defined in presse_page.h:
 // the .ino converter emits the prototypes of the functions below at the top of
@@ -8598,6 +8603,15 @@ static bool presseWriteFile(const char *data, size_t len) {
     return LittleFS.rename(PRESSE_TMP_PATH, PRESSE_PATH);
 }
 
+// The background setting is a few bytes: written in one go.
+static bool presseWriteBgFile(const String &json) {
+    File f = LittleFS.open(PRESSE_BG_PATH, "w");
+    if (!f) return false;
+    bool ok = f.print(json) == json.length();
+    f.close();
+    return ok;
+}
+
 // Loads the list into `doc`; writes the defaults first when there is none or
 // it does not parse.
 static void presseLoad(PresseJsonDocument &doc) {
@@ -8613,6 +8627,10 @@ static void presseLoad(PresseJsonDocument &doc) {
     presseWriteFile(def, strlen(def));
     deserializeJson(doc, def);
 }
+
+// The two figures of a setting, the same colour on every screen.
+#define PRESSE_COL_TEMP lv_color_hex(0xFF9A4D)
+#define PRESSE_COL_TIME lv_color_hex(0x4FD1EE)
 
 static lv_color_t presseColor(const char *hex) {
     if (!hex || hex[0] != '#' || strlen(hex) < 7) return LVCOL_CARD;
@@ -8652,6 +8670,9 @@ static const lv_img_dsc_t* presseIcon(const char *icon, const char *name) {
         { "plate",    { "plaque", "alu", "mdf", "panel", "panneau", "ardoise", "slate", "plate", nullptr } },
         { "bottle",   { "gourde", "bouteille", "bottle", "thermos", nullptr } },
         { "phone",    { "coque", "phone", nullptr } },
+        { "puzzle",   { "puzzle", nullptr } },
+        { "gem",      { "strass", "rhinestone", "hotfix", nullptr } },
+        { "paper",    { "papier", "paper", "transfert", "transfer", nullptr } },
         { "tshirt",   { "t-shirt", "tshirt", "tee", "shirt", "polo", "coton", "cotton", "polyester",
                         "textile", "tissu", "fabric", nullptr } },
     };
@@ -8670,29 +8691,82 @@ static lv_obj_t* presseAddIcon(lv_obj_t *parent, const lv_img_dsc_t *img, lv_col
     return im;
 }
 
-// Two columns that fill the page: each row shares the height `availH` (at
-// least minH, at most maxH -- past that the list scrolls), and an odd last
-// tile spans both columns. `slot` keeps the descriptor of one screen alive
-// while the next one is built over it.
-static void presseGrid(lv_obj_t *list, int slot, int n, int availH, int minH, int maxH) {
-    static lv_coord_t cols[] = { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
+// A thumbnail inside a rounded square of `size` px: the square in `bg` at
+// `bgOpa`, the shape in `fg`, shrunk so it keeps a margin. The bitmaps are
+// PRESSE_ICON_SIZE square; zoom 256 is 1:1.
+static lv_obj_t* presseIconBadge(lv_obj_t *parent, const lv_img_dsc_t *img, int size,
+                                 lv_color_t bg, lv_opa_t bgOpa, lv_color_t fg) {
+    lv_obj_t *sq = lv_obj_create(parent);
+    lv_obj_remove_style_all(sq);
+    lv_obj_set_size(sq, size, size);
+    lv_obj_set_style_bg_color(sq, bg, 0);
+    lv_obj_set_style_bg_opa(sq, bgOpa, 0);
+    lv_obj_set_style_radius(sq, size / 4, 0);
+    lv_obj_clear_flag(sq, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(sq, LV_OBJ_FLAG_SCROLLABLE);
+    if (img) {
+        lv_obj_t *im = presseAddIcon(sq, img, fg);
+        lv_img_set_zoom(im, (uint16_t)(256 * (size * 7 / 10) / PRESSE_ICON_SIZE));
+        lv_obj_center(im);
+    }
+    return sq;
+}
+
+// The see-through card every block of the memo sits on: white at a low
+// opacity with a faint edge, so the chosen background shows through. No
+// shadow and no blur: LVGL redraws them on every timer tick.
+static void presseGlass(lv_obj_t *o, int radius) {
+    lv_obj_set_style_bg_color(o, lv_color_white(), 0);
+    lv_obj_set_style_bg_opa(o, 24, 0);
+    lv_obj_set_style_bg_opa(o, 56, LV_STATE_PRESSED);
+    lv_obj_set_style_border_color(o, lv_color_white(), 0);
+    lv_obj_set_style_border_opa(o, 36, 0);
+    lv_obj_set_style_border_width(o, 1, 0);
+    lv_obj_set_style_radius(o, radius, 0);
+    lv_obj_set_style_shadow_width(o, 0, 0);
+    lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+// A pill of text: owner data or a number, never a sentence.
+static lv_obj_t* presseChip(lv_obj_t *parent, const char *text, lv_color_t col) {
+    lv_obj_t *l = lv_label_create(parent);
+    lv_label_set_text(l, text);
+    lv_obj_set_style_text_color(l, col, 0);
+    lv_obj_set_style_text_font(l, &gFont14, 0);
+    lv_obj_set_style_bg_color(l, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(l, 90, 0);
+    lv_obj_set_style_radius(l, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_pad_hor(l, 7, 0);
+    lv_obj_set_style_pad_ver(l, 1, 0);
+    return l;
+}
+
+// `cols` columns that fill the page: each row shares the height `availH` (at
+// least minH, at most maxH -- past that the list scrolls). With two columns
+// an odd last tile spans both. `slot` keeps the descriptor of one screen
+// alive while the next one is built over it.
+static void presseGrid(lv_obj_t *list, int slot, int n, int cols, int availH, int minH, int maxH) {
+    static lv_coord_t colDsc[2][4] = {
+        { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST, 0 },
+        { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST } };
     static lv_coord_t rows[2][129];
     const int GAP = 10;
-    int nRows = (n + 1) / 2;
+    cols = cols == 3 ? 3 : 2;
+    int nRows = (n + cols - 1) / cols;
     if (nRows > 128) nRows = 128;
     int h = nRows ? (availH - (nRows - 1) * GAP) / nRows : minH;
     h = constrain(h, minH, maxH);
     for (int r = 0; r < nRows; r++) rows[slot][r] = h;
     rows[slot][nRows] = LV_GRID_TEMPLATE_LAST;
     lv_obj_set_layout(list, LV_LAYOUT_GRID);
-    lv_obj_set_grid_dsc_array(list, cols, rows[slot]);
+    lv_obj_set_grid_dsc_array(list, colDsc[cols - 2], rows[slot]);
     lv_obj_set_style_pad_row(list, GAP, 0);
     lv_obj_set_style_pad_column(list, GAP, 0);
-    for (int i = 0; i < n && i / 2 < nRows; i++) {
+    for (int i = 0; i < n && i / cols < nRows; i++) {
         lv_obj_t *child = lv_obj_get_child(list, i);
-        bool lastOdd = (i == n - 1) && (n % 2 == 1);
-        lv_obj_set_grid_cell(child, LV_GRID_ALIGN_STRETCH, i % 2, lastOdd ? 2 : 1,
-                             LV_GRID_ALIGN_STRETCH, i / 2, 1);
+        bool lastOdd = cols == 2 && (i == n - 1) && (n % 2 == 1);
+        lv_obj_set_grid_cell(child, LV_GRID_ALIGN_STRETCH, i % cols, lastOdd ? 2 : 1,
+                             LV_GRID_ALIGN_STRETCH, i / cols, 1);
     }
 }
 
@@ -8702,11 +8776,91 @@ static String presseEditUrl() {
     return String("http://") + WiFi.localIP().toString() + "/presse";
 }
 
+// The memo's background, chosen in the editor (/api/presse-bg) and kept apart
+// from the list, so importing a list or restoring the factory one leaves it
+// alone. A preset is a two-colour vertical gradient; "photo" is a 480x320
+// RGB565 image the editor's browser has already cropped and converted, read
+// into PSRAM while the tool is open, with a black veil of `dim` percent over
+// it so the figures stay readable on any picture.
+//
+//   /presse_bg.json  {"preset":"ember","dim":45,"photo":false}
+//   /presse_bg.bin   480*320*2 bytes, little-endian RGB565 (LV_COLOR_16_SWAP 0)
+struct PresseBgPreset { const char *id; uint32_t top, bottom; };
+static const PresseBgPreset PRESSE_BG_PRESETS[] = {
+    { "night",    0x0B0E14, 0x0B0E14 },   // the plain background of the other tools
+    { "ember",    0x3A1408, 0x0E0A10 },
+    { "ocean",    0x062A3A, 0x070C14 },
+    { "workshop", 0x2B2F3A, 0x101217 },
+    { "lavender", 0x2A1846, 0x0D0B16 },
+    { "forest",   0x0F3324, 0x080F0C },
+};
+static const int PRESSE_BG_PRESET_COUNT = sizeof(PRESSE_BG_PRESETS) / sizeof(PRESSE_BG_PRESETS[0]);
+
+// What the tool's screens are built over while it is open.
+static uint32_t     sPresseBgTop = 0x3A1408, sPresseBgBottom = 0x0E0A10;
+static lv_opa_t     sPresseBgVeil = 0;
+static uint8_t     *sPresseBgPixels = nullptr;
+static lv_img_dsc_t sPresseBgImg;
+
+// Reads the setting into the three values the screens use. Returns the
+// pixel buffer it allocated (or nullptr): the caller frees the previous one
+// only once no screen still points at it.
+static uint8_t* presseBgLoad() {
+    StaticJsonDocument<256> d;
+    if (LittleFS.exists(PRESSE_BG_PATH)) {
+        File f = LittleFS.open(PRESSE_BG_PATH, "r");
+        if (f) { deserializeJson(d, f); f.close(); }
+    }
+    const char *preset = d["preset"] | "ember";
+    sPresseBgTop = PRESSE_BG_PRESETS[1].top;
+    sPresseBgBottom = PRESSE_BG_PRESETS[1].bottom;
+    for (int i = 0; i < PRESSE_BG_PRESET_COUNT; i++)
+        if (strcmp(preset, PRESSE_BG_PRESETS[i].id) == 0) {
+            sPresseBgTop = PRESSE_BG_PRESETS[i].top;
+            sPresseBgBottom = PRESSE_BG_PRESETS[i].bottom;
+        }
+    sPresseBgVeil = (lv_opa_t)(constrain((int)(d["dim"] | 45), 0, 90) * 255 / 100);
+    if (!(d["photo"] | false) || !LittleFS.exists(PRESSE_BGIMG_PATH)) return nullptr;
+    File f = LittleFS.open(PRESSE_BGIMG_PATH, "r");
+    if (!f) return nullptr;
+    uint8_t *px = nullptr;
+    if (f.size() == PRESSE_BGIMG_BYTES) {
+        px = (uint8_t *)heap_caps_malloc(PRESSE_BGIMG_BYTES, MALLOC_CAP_SPIRAM);
+        if (px && f.read(px, PRESSE_BGIMG_BYTES) != PRESSE_BGIMG_BYTES) { free(px); px = nullptr; }
+    }
+    f.close();
+    if (px) {
+        memset(&sPresseBgImg, 0, sizeof sPresseBgImg);
+        sPresseBgImg.header.cf = LV_IMG_CF_TRUE_COLOR;
+        sPresseBgImg.header.w = 480;
+        sPresseBgImg.header.h = 320;
+        sPresseBgImg.data_size = PRESSE_BGIMG_BYTES;
+        sPresseBgImg.data = px;
+    }
+    return px;
+}
+
 static lv_obj_t* presseNewScreen() {
     lv_obj_t *scr = lv_obj_create(nullptr);
-    lv_obj_set_style_bg_color(scr, LVCOL_BG, 0);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(sPresseBgTop), 0);
+    lv_obj_set_style_bg_grad_color(scr, lv_color_hex(sPresseBgBottom), 0);
+    lv_obj_set_style_bg_grad_dir(scr, sPresseBgTop == sPresseBgBottom ? LV_GRAD_DIR_NONE : LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    if (sPresseBgPixels) {
+        lv_obj_t *im = lv_img_create(scr);
+        lv_img_set_src(im, &sPresseBgImg);
+        lv_obj_set_pos(im, 0, 0);
+        lv_obj_clear_flag(im, LV_OBJ_FLAG_CLICKABLE);
+        if (sPresseBgVeil) {
+            lv_obj_t *veil = lv_obj_create(scr);
+            lv_obj_remove_style_all(veil);
+            lv_obj_set_size(veil, 480, 320);
+            lv_obj_set_style_bg_color(veil, lv_color_black(), 0);
+            lv_obj_set_style_bg_opa(veil, sPresseBgVeil, 0);
+            lv_obj_clear_flag(veil, LV_OBJ_FLAG_CLICKABLE);
+        }
+    }
     return scr;
 }
 
@@ -8768,6 +8922,8 @@ static void runPresseMemo(lv_obj_t *backTo) {
 
     PresseJsonDocument doc(PRESSE_MAX_BYTES * 2);
     presseLoad(doc);
+    sPresseBgPixels = presseBgLoad();
+    uint8_t *staleBg = nullptr;             // freed once no screen shows it
     gPresseChanged = false;
 
     enum PmAction { PM_NONE, PM_BACK, PM_PICK, PM_START, PM_RESET };
@@ -8794,7 +8950,8 @@ static void runPresseMemo(lv_obj_t *backTo) {
         lv_obj_t *scr = presseNewScreen();
 
         // Detail-screen widgets the timer updates in place.
-        lv_obj_t *timeVal = nullptr, *bar = nullptr, *startBtn = nullptr, *startLbl = nullptr;
+        lv_obj_t *timeVal = nullptr, *timeUnit = nullptr, *ring = nullptr;
+        lv_obj_t *startBtn = nullptr, *startLbl = nullptr;
         int presetTime = 0;
         const char *peel = "";
 
@@ -8812,34 +8969,53 @@ static void runPresseMemo(lv_obj_t *backTo) {
             } else {
                 int bottom = 320 - footer - (footer ? 6 : 0);
                 lv_obj_t *list = presseList(scr, bottom);
+                // Three columns from five techniques up; fewer keep two, so
+                // four do not leave one tile alone on a row.
+                int cols = cats.size() >= 5 ? 3 : 2;
                 int i = 0;
                 for (JsonObject k : cats) {
+                    // A card on the background: the technique's colour on its
+                    // thumbnail only, the name, then how many products it
+                    // holds and the range of their temperatures.
                     lv_obj_t *tile = lv_btn_create(list);
-                    lv_color_t col = presseColor(k["color"] | "#555555");
-                    lv_obj_set_style_bg_color(tile, col, 0);
-                    lv_obj_set_style_border_width(tile, 0, 0);
-                    lv_obj_set_style_radius(tile, 12, 0);
-                    lv_obj_set_style_shadow_width(tile, 0, 0);
-                    lv_obj_set_style_pad_all(tile, 6, 0);
-                    lv_obj_clear_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
-                    lv_obj_set_flex_flow(tile, LV_FLEX_FLOW_COLUMN);
-                    lv_obj_set_flex_align(tile, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-                    lv_obj_set_style_pad_row(tile, 4, 0);
+                    presseGlass(tile, 14);
+                    lv_obj_set_style_pad_all(tile, 10, 0);
                     lv_obj_set_user_data(tile, (void *)(intptr_t)(100 + i));
                     lv_obj_add_event_cb(tile, cb, LV_EVENT_CLICKED, nullptr);
+                    lv_color_t col = presseColor(k["color"] | "#555555");
                     const char *catName = k["name"] | "-";   // owner data, not UI text
-                    const lv_img_dsc_t *ic = presseIcon(k["icon"] | "", catName);
-                    if (ic) presseAddIcon(tile, ic, LVCOL_TEXT);
+                    presseIconBadge(tile, presseIcon(k["icon"] | "", catName), 40,
+                                    col, LV_OPA_COVER, LVCOL_TEXT);
+                    JsonArray its = k["items"].as<JsonArray>();
+                    int lo = 999, hi = 0;
+                    for (JsonObject it : its) {
+                        int tv = it["temp"] | 0;
+                        if (tv > 0) { lo = min(lo, tv); hi = max(hi, tv); }
+                    }
+                    char cnt[8];
+                    snprintf(cnt, sizeof cnt, "%u", (unsigned)its.size());
+                    lv_obj_t *badge = presseChip(tile, cnt, LVCOL_TEXT);
+                    lv_obj_align(badge, LV_ALIGN_TOP_RIGHT, 0, 0);
                     lv_obj_t *l = lv_label_create(tile);
                     lv_label_set_text(l, catName);
                     lv_obj_set_style_text_color(l, LVCOL_TEXT, 0);
                     lv_obj_set_style_text_font(l, &gFont20, 0);
                     lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
                     lv_obj_set_width(l, LV_PCT(100));
-                    lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+                    lv_obj_align(l, LV_ALIGN_BOTTOM_LEFT, 0, hi ? -18 : 0);
+                    if (hi) {
+                        char rng[24];
+                        if (lo == hi) snprintf(rng, sizeof rng, "%d °C", hi);
+                        else          snprintf(rng, sizeof rng, "%d-%d °C", lo, hi);
+                        lv_obj_t *r = lv_label_create(tile);
+                        lv_label_set_text(r, rng);
+                        lv_obj_set_style_text_color(r, LVCOL_MUTED, 0);
+                        lv_obj_set_style_text_font(r, &gFont14, 0);
+                        lv_obj_align(r, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+                    }
                     i++;
                 }
-                presseGrid(list, 0, i, bottom - 49 - 16, 64, 120);
+                presseGrid(list, 0, i, cols, bottom - 49 - 16, 84, 120);
                 presseRailIfNeeded(scr, list, bottom);
                 int y = 320 - footer - 2;
                 if (defaults) {
@@ -8872,34 +9048,28 @@ static void runPresseMemo(lv_obj_t *backTo) {
                 lv_color_t accent = presseColor(c["color"] | "#555555");
                 int i = 0;
                 for (JsonObject it : items) {
-                    // A card in two columns: the category's colour as the left
-                    // edge (the tile you came from), the thumbnail tinted with
-                    // it, then the name over temperature and time.
+                    // A card in two columns: the thumbnail in the category's
+                    // colour on a square of the same colour, then the name
+                    // over temperature and time as two pills.
                     lv_obj_t *row = lv_btn_create(list);
-                    lv_obj_set_style_bg_color(row, LVCOL_CARD, 0);
-                    lv_obj_set_style_border_color(row, accent, 0);
-                    lv_obj_set_style_border_width(row, 6, 0);
-                    lv_obj_set_style_border_side(row, LV_BORDER_SIDE_LEFT, 0);
-                    lv_obj_set_style_radius(row, 10, 0);
-                    lv_obj_set_style_shadow_width(row, 0, 0);
-                    lv_obj_set_style_pad_left(row, 10, 0);
+                    presseGlass(row, 12);
+                    lv_obj_set_style_pad_left(row, 8, 0);
                     lv_obj_set_style_pad_right(row, 6, 0);
                     lv_obj_set_style_pad_ver(row, 4, 0);
                     lv_obj_set_style_pad_column(row, 8, 0);
-                    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
                     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
                     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
                     lv_obj_set_user_data(row, (void *)(intptr_t)(100 + i));
                     lv_obj_add_event_cb(row, cb, LV_EVENT_CLICKED, nullptr);
                     const char *itemName = it["name"] | "-";  // owner data, not UI text
-                    const lv_img_dsc_t *ic = presseIcon(it["icon"] | "", itemName);
-                    if (ic) presseAddIcon(row, ic, accent);
+                    presseIconBadge(row, presseIcon(it["icon"] | "", itemName), 40,
+                                    accent, 72, accent);
                     lv_obj_t *txt = lv_obj_create(row);
                     lv_obj_remove_style_all(txt);
                     lv_obj_set_height(txt, LV_SIZE_CONTENT);
                     lv_obj_set_flex_grow(txt, 1);
                     lv_obj_set_flex_flow(txt, LV_FLEX_FLOW_COLUMN);
-                    lv_obj_set_style_pad_row(txt, 2, 0);
+                    lv_obj_set_style_pad_row(txt, 4, 0);
                     lv_obj_clear_flag(txt, LV_OBJ_FLAG_CLICKABLE);
                     lv_obj_clear_flag(txt, LV_OBJ_FLAG_SCROLLABLE);
                     lv_obj_t *n = lv_label_create(txt);
@@ -8908,110 +9078,127 @@ static void runPresseMemo(lv_obj_t *backTo) {
                     lv_obj_set_style_text_font(n, &gFont16, 0);
                     lv_label_set_long_mode(n, LV_LABEL_LONG_DOT);
                     lv_obj_set_width(n, LV_PCT(100));
-                    char buf[40];
-                    snprintf(buf, sizeof buf, "%d °C  ·  %d s", (int)(it["temp"] | 0), (int)(it["time"] | 0));
-                    lv_obj_t *v = lv_label_create(txt);
-                    lv_label_set_text(v, buf);
-                    lv_obj_set_style_text_color(v, LVCOL_YELLOW, 0);
-                    lv_obj_set_style_text_font(v, &gFont16, 0);
+                    lv_obj_t *chips = lv_obj_create(txt);
+                    lv_obj_remove_style_all(chips);
+                    lv_obj_set_size(chips, LV_PCT(100), LV_SIZE_CONTENT);
+                    lv_obj_set_flex_flow(chips, LV_FLEX_FLOW_ROW);
+                    lv_obj_set_style_pad_column(chips, 5, 0);
+                    lv_obj_clear_flag(chips, LV_OBJ_FLAG_CLICKABLE);
+                    lv_obj_clear_flag(chips, LV_OBJ_FLAG_SCROLLABLE);
+                    char buf[16];
+                    snprintf(buf, sizeof buf, "%d °C", (int)(it["temp"] | 0));
+                    presseChip(chips, buf, PRESSE_COL_TEMP);
+                    snprintf(buf, sizeof buf, "%d s", (int)(it["time"] | 0));
+                    presseChip(chips, buf, PRESSE_COL_TIME);
                     i++;
                 }
-                presseGrid(list, 1, i, 320 - 49 - 16, 64, 110);
+                presseGrid(list, 1, i, 2, 320 - 49 - 16, 62, 84);
                 presseRailIfNeeded(scr, list, 320);
             }
         } else {
             JsonObject it = items[item].as<JsonObject>();
             lvglAddHeader(scr, it["name"] | "-", cb, nullptr, (intptr_t)PM_BACK);
+            lv_color_t accent = presseColor(c["color"] | "#555555");
             const lv_img_dsc_t *ic = presseIcon(it["icon"] | "", it["name"] | "");
             if (ic) {
                 // In the header band's right end: the band is all "back", the
-                // thumbnail is not clickable, so a touch on it still goes back.
-                lv_obj_t *im = presseAddIcon(scr, ic, presseColor(c["color"] | "#555555"));
-                lv_obj_align(im, LV_ALIGN_TOP_RIGHT, -12, 2);
+                // badge is not clickable, so a touch on it still goes back.
+                lv_obj_t *b = presseIconBadge(scr, ic, 36, accent, 72, accent);
+                lv_obj_align(b, LV_ALIGN_TOP_RIGHT, -12, 6);
             }
             presetTime = constrain((int)(it["time"] | 0), 0, 999);
             int temp = constrain((int)(it["temp"] | 0), 0, 250);
             peel = it["peel"] | "";
 
-            auto bigCard = [&](int x, const char *title, int value, const char *unit,
-                               lv_color_t col) -> lv_obj_t* {
+            // The time as a ring that empties while the press is closed, the
+            // count in its middle.
+            ring = lv_arc_create(scr);
+            lv_obj_set_size(ring, 188, 188);
+            lv_obj_set_pos(ring, 14, 58);
+            lv_arc_set_rotation(ring, 270);
+            lv_arc_set_bg_angles(ring, 0, 360);
+            lv_arc_set_range(ring, 0, 1000);
+            lv_arc_set_value(ring, 1000);
+            lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_set_style_bg_color(ring, lv_color_black(), LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(ring, 64, LV_PART_MAIN);
+            lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+            lv_obj_set_style_arc_color(ring, lv_color_white(), LV_PART_MAIN);
+            lv_obj_set_style_arc_opa(ring, 32, LV_PART_MAIN);
+            lv_obj_set_style_arc_width(ring, 12, LV_PART_MAIN);
+            lv_obj_set_style_arc_color(ring, PRESSE_COL_TIME, LV_PART_INDICATOR);
+            lv_obj_set_style_arc_width(ring, 12, LV_PART_INDICATOR);
+            lv_obj_set_style_arc_rounded(ring, true, LV_PART_INDICATOR);
+            lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, LV_PART_KNOB);
+            lv_obj_set_style_pad_all(ring, 0, LV_PART_KNOB);
+            timeVal = lv_label_create(ring);
+            lv_obj_set_style_text_font(timeVal, &lv_font_montserrat_48, 0);
+            lv_obj_align(timeVal, LV_ALIGN_CENTER, 0, -6);
+            timeUnit = lv_label_create(ring);
+            lv_obj_set_style_text_color(timeUnit, LVCOL_MUTED, 0);
+            lv_obj_set_style_text_font(timeUnit, &gFont14, 0);
+            lv_obj_align(timeUnit, LV_ALIGN_CENTER, 0, 30);
+
+            auto glassBox = [&](int x, int y, int w, int h, const char *title) -> lv_obj_t* {
                 lv_obj_t *cd = lv_obj_create(scr);
                 lv_obj_remove_style_all(cd);
-                lv_obj_set_size(cd, 225, 110);
-                lv_obj_set_pos(cd, x, 56);
-                lv_obj_set_style_bg_color(cd, LVCOL_CARD, 0);
-                lv_obj_set_style_bg_opa(cd, LV_OPA_COVER, 0);
-                lv_obj_set_style_border_color(cd, LVCOL_BORDER, 0);
-                lv_obj_set_style_border_width(cd, 1, 0);
-                lv_obj_set_style_radius(cd, 10, 0);
-                lv_obj_clear_flag(cd, LV_OBJ_FLAG_SCROLLABLE);
+                presseGlass(cd, 14);
+                lv_obj_set_size(cd, w, h);
+                lv_obj_set_pos(cd, x, y);
+                lv_obj_clear_flag(cd, LV_OBJ_FLAG_CLICKABLE);
                 lv_obj_t *tl = lv_label_create(cd);
                 lv_label_set_text(tl, title);
                 lv_obj_set_style_text_color(tl, LVCOL_MUTED, 0);
                 lv_obj_set_style_text_font(tl, &gFont14, 0);
-                lv_obj_set_pos(tl, 12, 8);
-                lv_obj_t *v = lv_label_create(cd);
-                char b[12]; snprintf(b, sizeof b, "%d", value);
-                lv_label_set_text(v, b);
-                lv_obj_set_style_text_color(v, col, 0);
-                lv_obj_set_style_text_font(v, &lv_font_montserrat_48, 0);
-                lv_obj_set_pos(v, 12, 38);
-                lv_obj_t *u = lv_label_create(cd);
-                lv_label_set_text(u, unit);
-                lv_obj_set_style_text_color(u, col, 0);
-                lv_obj_set_style_text_font(u, &gFont20, 0);
-                lv_obj_align(u, LV_ALIGN_BOTTOM_RIGHT, -14, -16);
-                return v;
+                lv_obj_set_pos(tl, 12, 6);
+                return cd;
             };
-            bigCard(10, t(I18N_PR_TEMP), temp, "°C", LVCOL_ORANGE);
-            timeVal = bigCard(245, t(I18N_PR_TIME), presetTime, "s", lv_color_hex(0x3FC8E4));
+            lv_obj_t *tc = glassBox(216, 58, 252, 76, t(I18N_PR_TEMP));
+            char b[12]; snprintf(b, sizeof b, "%d", temp);
+            lv_obj_t *tv = lv_label_create(tc);
+            lv_label_set_text(tv, b);
+            lv_obj_set_style_text_color(tv, PRESSE_COL_TEMP, 0);
+            lv_obj_set_style_text_font(tv, &lv_font_montserrat_40, 0);
+            lv_obj_set_pos(tv, 12, 26);
+            lv_obj_t *tu = lv_label_create(tc);
+            lv_label_set_text(tu, "°C");
+            lv_obj_set_style_text_color(tu, PRESSE_COL_TEMP, 0);
+            lv_obj_set_style_text_font(tu, &gFont20, 0);
+            lv_obj_align_to(tu, tv, LV_ALIGN_OUT_RIGHT_BOTTOM, 4, -6);
 
-            auto field = [&](int x, const char *title, const char *value) {
-                lv_obj_t *tl = lv_label_create(scr);
-                lv_label_set_text(tl, title);
-                lv_obj_set_style_text_color(tl, LVCOL_MUTED, 0);
-                lv_obj_set_style_text_font(tl, &gFont14, 0);
-                lv_obj_set_pos(tl, x, 174);
-                lv_obj_t *v = lv_label_create(scr);
+            auto mini = [&](int x, const char *title, const char *value) {
+                lv_obj_t *cd = glassBox(x, 142, 121, 54, title);
+                lv_obj_t *v = lv_label_create(cd);
                 lv_label_set_text(v, (value && value[0]) ? value : "-");
                 lv_obj_set_style_text_color(v, LVCOL_TEXT, 0);
-                lv_obj_set_style_text_font(v, &gFont20, 0);
+                lv_obj_set_style_text_font(v, &gFont16, 0);
                 lv_label_set_long_mode(v, LV_LABEL_LONG_DOT);
-                lv_obj_set_width(v, 220);
-                lv_obj_set_pos(v, x, 192);
+                lv_obj_set_width(v, 103);
+                lv_obj_set_pos(v, 12, 26);
             };
-            field(12, t(I18N_PR_PRESSURE), it["pressure"] | "");
-            field(247, t(I18N_PR_PEEL), peel);
+            mini(216, t(I18N_PR_PRESSURE), it["pressure"] | "");
+            mini(347, t(I18N_PR_PEEL), peel);
 
             const char *note = it["note"] | "";
             if (note[0]) {
                 lv_obj_t *n = lv_label_create(scr);
                 lv_label_set_text(n, note);
-                lv_obj_set_style_text_color(n, LVCOL_YELLOW, 0);
+                lv_obj_set_style_text_color(n, lv_color_hex(0xFFD66B), 0);
                 lv_obj_set_style_text_font(n, &gFont14, 0);
                 lv_label_set_long_mode(n, LV_LABEL_LONG_DOT);
-                lv_obj_set_width(n, 456);
-                lv_obj_set_pos(n, 12, 222);
+                lv_obj_set_size(n, 252, 48);
+                lv_obj_set_pos(n, 216, 204);
             }
 
-            bar = lv_bar_create(scr);
-            lv_obj_set_size(bar, 460, 8);
-            lv_obj_set_pos(bar, 10, 244);
-            lv_bar_set_range(bar, 0, 1000);
-            lv_bar_set_value(bar, 0, LV_ANIM_OFF);
-            lv_obj_set_style_bg_color(bar, LVCOL_CARD, LV_PART_MAIN);
-            lv_obj_set_style_bg_color(bar, LVCOL_GREEN, LV_PART_INDICATOR);
-
             startBtn = lv_btn_create(scr);
-            lv_obj_set_size(startBtn, 460, 54);
-            lv_obj_set_pos(startBtn, 10, 258);
+            lv_obj_set_size(startBtn, 456, 52);
+            lv_obj_set_pos(startBtn, 12, 258);
             lv_obj_set_style_bg_color(startBtn, LVCOL_GREEN, 0);
-            lv_obj_set_style_radius(startBtn, 12, 0);
+            lv_obj_set_style_radius(startBtn, 26, 0);
             lv_obj_set_style_shadow_width(startBtn, 0, 0);
             lv_obj_set_user_data(startBtn, (void *)(intptr_t)PM_START);
             lv_obj_add_event_cb(startBtn, cb, LV_EVENT_CLICKED, nullptr);
             startLbl = lv_label_create(startBtn);
-            lv_label_set_text(startLbl, t(I18N_PR_START));
             lv_obj_set_style_text_color(startLbl, LVCOL_TEXT, 0);
             lv_obj_set_style_text_font(startLbl, &gFont20, 0);
             lv_obj_center(startLbl);
@@ -9024,6 +9211,7 @@ static void runPresseMemo(lv_obj_t *backTo) {
         lv_scr_load(scr);
         if (cur) lv_obj_del(cur);
         cur = scr;
+        if (staleBg) { free(staleBg); staleBg = nullptr; }
         lvglDrainPress(800);
 
         // Timer state, detail screen only.
@@ -9045,21 +9233,31 @@ static void runPresseMemo(lv_obj_t *backTo) {
             alarmMs = millis();
         };
 
+        // A minute or more reads m:ss with no unit under it; under a minute
+        // the seconds, with "s".
+        auto fmtTime = [](char *b, size_t n, int secs) {
+            if (secs >= 60) snprintf(b, n, "%d:%02d", secs / 60, secs % 60);
+            else            snprintf(b, n, "%d", secs);
+        };
         auto setTime = [&](int secs, lv_color_t col) {
-            char b[12]; snprintf(b, sizeof b, "%d", secs);
+            char b[12]; fmtTime(b, sizeof b, secs);
             lv_label_set_text(timeVal, b);
             lv_obj_set_style_text_color(timeVal, col, 0);
+            lv_label_set_text(timeUnit, secs >= 60 ? "" : "s");
         };
         auto toIdle = [&]() {
             tm = TM_IDLE;
             if (alert) { lv_obj_del(alert); alert = nullptr; alertCard = nullptr; }
-            setTime(presetTime, lv_color_hex(0x3FC8E4));
-            lv_bar_set_value(bar, 0, LV_ANIM_OFF);
-            lv_obj_set_style_bg_color(bar, LVCOL_GREEN, LV_PART_INDICATOR);
+            setTime(presetTime, PRESSE_COL_TIME);
+            lv_arc_set_value(ring, 1000);
+            lv_obj_set_style_arc_color(ring, PRESSE_COL_TIME, LV_PART_INDICATOR);
             lv_obj_set_style_bg_color(startBtn, LVCOL_GREEN, 0);
-            lv_label_set_text(startLbl, t(I18N_PR_START));
+            char b[12]; fmtTime(b, sizeof b, presetTime);
+            String go = String(t(I18N_PR_START)) + "  ·  " + b + (presetTime >= 60 ? "" : " s");
+            lv_label_set_text(startLbl, go.c_str());
             shownSec = presetTime;
         };
+        if (level == 2) toIdle();
 
         while (!rebuild) {
             lv_timer_handler(); delay(5);
@@ -9077,6 +9275,8 @@ static void runPresseMemo(lv_obj_t *backTo) {
                 gPresseChanged = false;
                 doc.clear();
                 presseLoad(doc);
+                staleBg = sPresseBgPixels;     // the open screen still shows it
+                sPresseBgPixels = presseBgLoad();
                 level = 0; cat = 0; item = 0;
                 rebuild = true;
                 break;
@@ -9086,6 +9286,7 @@ static void runPresseMemo(lv_obj_t *backTo) {
                 if (level == 0) {
                     lv_scr_load(backTo);
                     lv_obj_del(cur);
+                    if (sPresseBgPixels) { free(sPresseBgPixels); sPresseBgPixels = nullptr; }
                     lvglDrainPress(800);
                     return;                    // doc is freed on the way out
                 }
@@ -9120,8 +9321,7 @@ static void runPresseMemo(lv_obj_t *backTo) {
                     if (el >= durMs) {
                         tm = TM_DONE;
                         setTime(0, LVCOL_ORANGE);
-                        lv_bar_set_value(bar, 1000, LV_ANIM_OFF);
-                        lv_obj_set_style_bg_color(bar, LVCOL_ORANGE, LV_PART_INDICATOR);
+                        lv_arc_set_value(ring, 0);
 
                         // Full-screen alert: the press is across the room, a
                         // label change would go unseen. The whole panel is the
@@ -9164,9 +9364,12 @@ static void runPresseMemo(lv_obj_t *backTo) {
                         if (remain != shownSec) {
                             shownSec = remain;
                             setTime(remain, remain <= 3 ? LVCOL_ORANGE : LVCOL_TEXT);
-                            if (remain <= 3) playBeeps(1500, 60, 1);
+                            if (remain <= 3) {
+                                lv_obj_set_style_arc_color(ring, LVCOL_ORANGE, LV_PART_INDICATOR);
+                                playBeeps(1500, 60, 1);
+                            }
                         }
-                        lv_bar_set_value(bar, (int32_t)(el * 1000ULL / durMs), LV_ANIM_OFF);
+                        lv_arc_set_value(ring, 1000 - (int32_t)(el * 1000ULL / durMs));
                     }
                 } else if (alertCard) {
                     // Blink until touched.
@@ -13840,6 +14043,72 @@ void setupWebServer() {
                    request->getParam("order", true)->value().c_str());
         request->send(200, "text/plain", "OK");
     });
+    // The memo's background (runPresseMemo, presseBgLoad). Its own paths, not
+    // under /api/presse/, so neither handler answers for the other.
+    server.on("/api/presse-bg", HTTP_GET, [](AsyncWebServerRequest *request){
+        StaticJsonDocument<256> d;
+        if (LittleFS.exists(PRESSE_BG_PATH)) {
+            File f = LittleFS.open(PRESSE_BG_PATH, "r");
+            if (f) { deserializeJson(d, f); f.close(); }
+        }
+        if (!d.containsKey("preset")) d["preset"] = "ember";
+        if (!d.containsKey("dim"))    d["dim"] = 45;
+        if (!d.containsKey("photo"))  d["photo"] = false;
+        File img = LittleFS.open(PRESSE_BGIMG_PATH, "r");
+        d["hasPhoto"] = img && img.size() == PRESSE_BGIMG_BYTES;
+        if (img) img.close();
+        String out;
+        serializeJson(d, out);
+        AsyncWebServerResponse *r = request->beginResponse(200, "application/json", out);
+        r->addHeader("Cache-Control", "no-store");
+        request->send(r);
+    });
+    // Form fields preset, dim (0-90), photo (0/1); drop=1 also deletes the image.
+    server.on("/api/presse-bg", HTTP_POST, [](AsyncWebServerRequest *request){
+        StaticJsonDocument<256> d;
+        const char *preset = "ember";
+        String p = request->hasParam("preset", true) ? request->getParam("preset", true)->value() : String("");
+        for (int i = 0; i < PRESSE_BG_PRESET_COUNT; i++)
+            if (p == PRESSE_BG_PRESETS[i].id) preset = PRESSE_BG_PRESETS[i].id;
+        d["preset"] = preset;
+        d["dim"] = request->hasParam("dim", true)
+                   ? constrain(request->getParam("dim", true)->value().toInt(), 0L, 90L) : 45L;
+        d["photo"] = request->hasParam("photo", true) && request->getParam("photo", true)->value() == "1";
+        if (request->hasParam("drop", true) && request->getParam("drop", true)->value() == "1") {
+            LittleFS.remove(PRESSE_BGIMG_PATH);
+            d["photo"] = false;
+        }
+        String out;
+        serializeJson(d, out);
+        if (!presseWriteBgFile(out)) { request->send(500, "text/plain", "write failed"); return; }
+        gPresseChanged = true;
+        request->send(200, "text/plain", "OK");
+    });
+    // The image itself: exactly 480x320 RGB565, streamed to a temporary file
+    // chunk by chunk (300 KB never sits in RAM) and swapped in when complete.
+    server.on("/api/presse-bgimg", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
+        [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
+            if (total != PRESSE_BGIMG_BYTES) {
+                if (index == 0) request->send(400, "text/plain", "expected 480x320 RGB565");
+                return;
+            }
+            File f = LittleFS.open(PRESSE_BGIMG_TMP, index == 0 ? "w" : "a");
+            bool ok = f && f.write(data, len) == len;
+            if (f) f.close();
+            if (!ok) {
+                LittleFS.remove(PRESSE_BGIMG_TMP);
+                request->send(500, "text/plain", "write failed");
+                return;
+            }
+            if (index + len < total) return;
+            LittleFS.remove(PRESSE_BGIMG_PATH);
+            if (!LittleFS.rename(PRESSE_BGIMG_TMP, PRESSE_BGIMG_PATH)) {
+                request->send(500, "text/plain", "write failed"); return;
+            }
+            gPresseChanged = true;
+            request->send(200, "text/plain", "OK");
+        }
+    );
     server.on("/api/presse/reset", HTTP_POST, [](AsyncWebServerRequest *request){
         const char *def = presseDefaults();
         if (!presseWriteFile(def, strlen(def))) {

@@ -221,13 +221,17 @@ The list behind the start menu's heat press memo tool, kept in LittleFS as
 
 | Endpoint | Body | Effect |
 |---|---|---|
-| `GET /presse` | — | The list editor: categories, products, export and import |
+| `GET /presse` | — | The list editor: categories, products, export and import, and the screen background |
 | `GET /api/presse` | — | The list as JSON (the factory list when none is saved yet) |
 | `POST /api/presse` | the whole list | Replaces it; `400` if it is not an object with a `categories` array. An open memo screen reloads to its categories |
 | `POST /api/presse/reset` | none | Puts the factory list back (indicative values) |
+| `GET /api/presse-bg` | — | The background: `{"preset":"ember","dim":45,"photo":false,"hasPhoto":false}` |
+| `POST /api/presse-bg` | form: `preset`, `dim` (0-90), `photo` (0/1), optional `drop=1` | Sets the background; `drop=1` also deletes the stored photo. An open memo screen reloads |
+| `POST /api/presse-bgimg` | 307 200 bytes | The photo: 480x320, RGB565 little-endian, already cropped by the editor. `400` for any other size. Kept as `/presse_bg.bin` |
 
-`{"settings":{"defaults":false},"categories":[{"name":"DTF","color":"#2980B9","items":[{"name":"Cotton","temp":160,"time":15,"pressure":"Firm","peel":"Cold","note":""}]}]}`
+`{"settings":{"defaults":false},"categories":[{"name":"DTF","color":"#3B8FE0","items":[{"name":"Cotton","temp":160,"time":15,"pressure":"Firm","peel":"Cold","note":""}]}]}`
 - `temp` 0-250 °C and `time` 0-999 s are clamped on the screen; a time of 0 leaves the timer unavailable.
+- The background is kept apart from the list, so importing a list or restoring the factory one leaves it alone. Presets: `night`, `ember` (the default), `ocean`, `workshop`, `lavender`, `forest`.
 - `settings.defaults` is `true` only on the factory list, and is what makes the screen call the values indicative; the editor clears it on save.
 
 ### Start menu tools

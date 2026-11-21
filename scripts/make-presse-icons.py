@@ -124,6 +124,35 @@ def draw_phone(d):
     d.ellipse(P(34, 14, 42, 22), fill=ON)
 
 
+def draw_gem(d):
+    # a cut stone seen from the side: the table on top, the pavilion to a point
+    d.polygon([tuple(P(x, y)) for x, y in [(26, 14), (74, 14), (96, 38), (50, 94), (4, 38)]], fill=ON)
+    d.line(P(4, 38, 96, 38), fill=OFF, width=int(G * 0.03))
+    d.line(P(38, 15, 30, 37), fill=OFF, width=int(G * 0.025))
+    d.line(P(62, 15, 70, 37), fill=OFF, width=int(G * 0.025))
+    d.line(P(30, 39, 50, 90), fill=OFF, width=int(G * 0.025))
+    d.line(P(70, 39, 50, 90), fill=OFF, width=int(G * 0.025))
+
+
+def draw_paper(d):
+    # a sheet with its corner folded down, and lines of print
+    d.polygon([tuple(P(x, y)) for x, y in [(16, 4), (62, 4), (86, 28), (86, 96), (16, 96)]], fill=ON)
+    d.polygon([tuple(P(x, y)) for x, y in [(62, 4), (62, 28), (86, 28)]], fill=OFF)
+    d.polygon([tuple(P(x, y)) for x, y in [(62, 9), (62, 28), (81, 28)]], fill=ON)
+    d.line(P(62, 4, 62, 28), fill=OFF, width=int(G * 0.02))
+    d.line(P(62, 28, 86, 28), fill=OFF, width=int(G * 0.02))
+    for y in (46, 60, 74):
+        d.line(P(28, y, 74, y), fill=OFF, width=int(G * 0.035))
+
+
+def draw_puzzle(d):
+    # one piece: a square with a knob out on the top and right, a socket on the left
+    d.rectangle(P(14, 26, 78, 90), fill=ON)
+    d.ellipse(P(34, 8, 58, 32), fill=ON)
+    d.ellipse(P(72, 46, 96, 70), fill=ON)
+    d.ellipse(P(4, 46, 26, 68), fill=OFF)
+
+
 # The order is the order of the editor's list. The id is what /presse.json
 # stores in an item's "icon"; never rename one, lists in the field use it.
 ICONS = [
@@ -137,6 +166,9 @@ ICONS = [
     ("plate", draw_plate),
     ("bottle", draw_bottle),
     ("phone", draw_phone),
+    ("puzzle", draw_puzzle),
+    ("gem", draw_gem),
+    ("paper", draw_paper),
 ]
 
 

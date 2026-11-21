@@ -28,7 +28,31 @@ log lives in git history and the synthesised entry lives in the changelog.
 - `README.md`: the install button and the `git clone` command point to this
   fork (juditech3d.github.io / juditech3D) instead of the official repository.
 
+### Added
+
+- Heat press memo background: six gradient presets (night, ember, ocean,
+  workshop, lavender, forest) or the owner's own photo, cropped to 480x320 and
+  converted to RGB565 in the editor's browser, shown with an adjustable dark
+  veil. Kept apart from the list in `/presse_bg.json` and `/presse_bg.bin`,
+  served by `GET/POST /api/presse-bg` and `POST /api/presse-bgimg`
+  (`TigerTagSplashESP32.ino` §9 `presseBgLoad`, §19; `docs/API.md`).
+- Three memo thumbnails, `puzzle`, `gem` and `paper`, also guessed from
+  product names (`scripts/make-presse-icons.py`, `presse_icons.h`).
+
 ### Changed
+
+- Heat press memo screens restyled: see-through cards over the background,
+  techniques in three columns from five up with their product count and
+  temperature range, products with temperature and time pills, and the time
+  as a ring that empties while pressing (`runPresseMemo`, `presseGlass`,
+  `presseIconBadge`, `presseChip`, `presseGrid` now takes a column count).
+- Heat press memo factory list grows from 12 to 38 products in six
+  categories (Sublimation, DTF, HTV, Flock, Rhinestones, Transfer paper),
+  from Siser, Sawgrass, Brother and DTF supplier sheets. Written only on a
+  scale with no list yet (`presse_page.h` `PRESSE_DEFAULTS_EN` / `_FR`).
+- The `/presse` editor is restyled and gains the background panel with a
+  live preview, a product count per category, and the peel values "Hot or
+  cold" and "See sheet" (`presse_page.h`).
 
 - `README.md` opens with an "Unofficial alternative firmware" warning (GitHub
   alert) and gains a "What this firmware adds or changes" section: the fork's
