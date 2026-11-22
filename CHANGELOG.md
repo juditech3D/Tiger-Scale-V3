@@ -14,6 +14,13 @@ scaffold's placeholder text.
 
 Nothing yet.
 
+## [v3.13.0-mt.7](docs/release-notes/v3.13.0-mt.7.md)
+
+Remote wake on the live-view port (`:81/wake`, never a press); heartbeats keep
+flowing from the start menu and every tool, with the token refreshed before each
+beat; a scale rebooted onto the start menu starts its web server, live view and
+cloud worker without a tool being opened.
+
 ## [v3.13.0-mt.6](docs/release-notes/v3.13.0-mt.6.md)
 
 Bambu Lab chips read in the TigerPOD tool and sent to Studio as raw blocks;
