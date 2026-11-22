@@ -137,6 +137,7 @@
   .soon-grp + .grid { margin-bottom:22px; }
   .card .state { display:inline-block; margin-top:10px; font-size:12px; font-weight:600; border-radius:999px; padding:2px 10px; }
   .card .state.next { color:var(--ok); border:1px solid var(--ok); }
+  .card .state.ok { color:var(--ok); border:1px solid var(--ok); }
   .card .state.prep { color:var(--muted); border:1px solid var(--line); }
   .tag { display:inline-block; font-size:12px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:1px 8px; margin-left:6px; vertical-align:middle; font-weight:500; }
 
@@ -336,6 +337,13 @@
       </div>
     </section>
 
+    <section id="studio">
+      <h2 data-t="st_t"></h2>
+      <p class="sub" data-t="st_p"></p>
+      <div class="grid" id="studio-has"></div>
+      <div class="cta" style="margin-top:16px"><a class="btn ghost" id="studio-dl" data-t="st_btn"></a></div>
+    </section>
+
     <section id="soon">
       <h2 data-t="soon_t"></h2>
       <p class="sub" data-t="soon_p"></p>
@@ -512,6 +520,10 @@
       soon_studio: 'Dans le Tiger Studio du fork',
       soon_next: 'Prochaine version',
       soon_prep: 'En préparation',
+      st_t: 'Déjà dans Tiger Studio Fork',
+      st_p: 'Le Tiger Studio du fork (version 2.59.2-fork.4, pour Windows et Linux) ajoute ces fonctions à l\'appli d\'origine. Comme le firmware, c\'est une version personnelle et non officielle.',
+      st_btn: 'Télécharger Tiger Studio Fork',
+      st_ok: 'Disponible',
       more_t: 'Et aussi sur la balance',
       more_p: 'Des améliorations qui valent pour tout le firmware, pas pour un seul outil.',
       f_sleep_t: 'Veille partout',
@@ -606,6 +618,10 @@
       soon_studio: 'In this fork\'s Tiger Studio',
       soon_next: 'Next version',
       soon_prep: 'In preparation',
+      st_t: 'Already in Tiger Studio Fork',
+      st_p: 'This fork\'s Tiger Studio (version 2.59.2-fork.4, for Windows and Linux) adds these features to the original app. Like the firmware, it is a personal, unofficial version.',
+      st_btn: 'Download Tiger Studio Fork',
+      st_ok: 'Available',
       more_t: 'Also on the scale',
       more_p: 'Improvements that apply to the whole firmware, not to a single tool.',
       f_sleep_t: 'Sleep everywhere',
@@ -739,20 +755,44 @@
         en: ['Wake the screen remotely', 'The scale\'s screen turns back on from Tiger Studio, without touching it.'] }
     ],
     studio: [
-      { next: true,
-        fr: ['Bobines Bambu Lab : les deux puces lues', 'Une bobine Bambu Lab a une puce de chaque côté : Studio attend d\'avoir lu les deux avant de l\'ajouter au stock, et te dit ce qui manque.'],
-        en: ['Bambu Lab spools: both chips read', 'A Bambu Lab spool has a chip on each side: Studio waits until it has read both before adding it to the stock, and tells you what is missing.'] },
-      { next: true,
-        fr: ['Impression directe des étiquettes', 'Imprime les étiquettes de tes bobines sur une Marklife P15 (Bluetooth) ou une Brother QL (réseau), avec le bon format choisi tout seul.'],
-        en: ['Direct label printing', 'Print your spool labels on a Marklife P15 (Bluetooth) or a Brother QL (network), with the right format picked for you.'] },
-      { fr: ['Mode du scanner de codes-barres', 'Un bouton choisit où le scanner agit : partout dans l\'appli, seulement dans la barre de recherche, ou pas du tout.'],
-        en: ['Barcode scanner mode', 'A button chooses where the scanner acts: anywhere in the app, only in the search bar, or not at all.'] },
-      { fr: ['Réveiller la balance depuis Studio', 'Un bouton rallume l\'écran de la balance à distance, et la capture d\'écran s\'affiche devant la vue en direct.'],
-        en: ['Wake the scale from Studio', 'A button turns the scale\'s screen back on remotely, and the screenshot shows in front of the live view.'] },
       { fr: ['Version macOS', 'Le Tiger Studio du fork s\'installera aussi sur Mac (Apple Silicon et Intel).'],
         en: ['macOS version', 'This fork\'s Tiger Studio will also install on a Mac (Apple Silicon and Intel).'] }
     ]
   };
+
+  // What the fork's Tiger Studio already ships (published releases only).
+  const STUDIO_HAS = [
+    { fr: ['La balance en lecteur TigerPOD', 'Avec l\'outil TigerPOD ouvert, les deux lecteurs de la balance apparaissent dans Studio comme des lecteurs RFID : ouvrir, écrire, restaurer ou effacer une puce.'],
+      en: ['The scale as a TigerPOD reader', 'With the TigerPOD tool open, the scale\'s two readers show up in Studio as RFID readers: open, write, restore or erase a chip.'] },
+    { fr: ['Puces Bambu Lab', 'Une puce Bambu Lab est lue (matière, couleur, poids, températures). La bobine n\'est ajoutée qu\'une fois ses deux puces lues, et Studio dit laquelle manque.'],
+      en: ['Bambu Lab chips', 'A Bambu Lab chip is read (material, colour, weight, temperatures). The spool is added only once both its chips are read, and Studio says which one is missing.'] },
+    { fr: ['Scanner de codes-barres', 'Un code scanné ouvre le produit du catalogue, partout dans l\'appli. Un bouton choisit où il agit : partout, seulement dans la recherche, ou pas du tout.'],
+      en: ['Barcode scanner', 'A scanned code opens the catalogue product, anywhere in the app. A button chooses where it acts: anywhere, only in the search bar, or not at all.'] },
+    { fr: ['Impression directe des étiquettes', 'Sur une Marklife P15 (Bluetooth), une Brother QL (réseau) ou une imprimante installée, sans passer par la fenêtre d\'impression.'],
+      en: ['Direct label printing', 'On a Marklife P15 (Bluetooth), a Brother QL (network) or an installed printer, without the print dialog.'] },
+    { fr: ['Étiquettes sur A4 et en lot', 'Plusieurs étiquettes par feuille A4, le nombre de copies, ou une étiquette par bobine cochée, en une seule fois.'],
+      en: ['Labels on A4 and in batches', 'Several labels per A4 sheet, the number of copies, or one label per ticked spool, in one go.'] },
+    { fr: ['Valeurs choisies sur l\'étiquette', 'Un grand dessin de l\'étiquette : clique sur une ligne pour choisir ce qu\'elle affiche.'],
+      en: ['Values chosen on the label', 'A large drawing of the label: click a line to choose what it shows.'] },
+    { fr: ['Réveiller la balance', 'Un bouton rallume l\'écran de la balance depuis Studio, sans la toucher.'],
+      en: ['Wake the scale', 'A button turns the scale\'s screen back on from Studio, without touching it.'] },
+    { fr: ['Caméras et plans', 'Afficher ou couper toutes les caméras d\'un coup. La molette fait défiler les plans, Ctrl + molette zoome.'],
+      en: ['Cameras and plans', 'Show or stop all cameras at once. The wheel scrolls the plans, Ctrl + wheel zooms.'] },
+    { fr: ['Tout sélectionner', 'Dans les vues en tuiles, un bouton coche toutes les bobines affichées par le filtre.'],
+      en: ['Select all', 'In the tile views, a button ticks every spool the filter shows.'] }
+  ];
+
+  function drawStudio() {
+    const box = document.getElementById('studio-has');
+    box.textContent = '';
+    STUDIO_HAS.forEach(f => {
+      const c = document.createElement('div'); c.className = 'card';
+      const h = document.createElement('h3'); h.textContent = f[lang][0];
+      const p = document.createElement('p'); p.textContent = f[lang][1];
+      const st = document.createElement('span'); st.className = 'state ok'; st.textContent = tr('st_ok');
+      c.append(h, p, st); box.append(c);
+    });
+  }
 
   function drawSoon() {
     ['scale', 'studio'].forEach(k => {
@@ -814,12 +854,14 @@
     document.getElementById('fb-tool').href = ISSUES + '?title=' + encodeURIComponent(tr('fb_tool_title'));
     document.getElementById('fb-issue').href = ISSUES;
     document.getElementById('dis-issue').href = ISSUES;
+    document.getElementById('studio-dl').href = 'https://github.com/juditech3D/TigerTag-Studio-Manager/releases/latest';
     document.getElementById('calib-guide').href = OFFICIAL_SITE;
     document.querySelectorAll('[data-t]').forEach(e => { e.textContent = tr(e.dataset.t); });
     document.querySelectorAll('[data-lang]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
     paintTheme();
     drawCards();
     drawGuide();
+    drawStudio();
     drawSoon();
     drawPicker();
   }
