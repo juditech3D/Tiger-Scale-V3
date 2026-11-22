@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tiger Multi-tools — firmware multi-outils pour balance TigerScale V3</title>
-<meta name="description" content="Un firmware non officiel pour la balance TigerScale V3 : la pesée des bobines plus des outils au choix (TigerPOD, pèse-colis, calibration, mémo presse), installé depuis le navigateur.">
+<title>Tiger Multi-tools (fork non officiel) — firmware multi-outils pour balance TigerScale V3</title>
+<meta name="description" content="Un firmware personnel et non officiel, ni publié ni supporté par l'équipe TigerTag pour la balance TigerScale V3 : la pesée des bobines plus des outils au choix (TigerPOD, pèse-colis, calibration, mémo presse), installé depuis le navigateur.">
 <meta name="theme-color" content="#0d0f14">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
@@ -53,7 +53,8 @@
   button { font:inherit; }
 
   /* top bar */
-  .top { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 0 8px; }
+  .top { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:18px 0 8px; }
+  .brand > span[data-product] { white-space:nowrap; }
   .brand { display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:.2px; }
   .brand .mark { width:30px; height:30px; border-radius:8px; background:var(--accent); display:grid; place-items:center; color:#fff; }
   .brand .mark svg { width:18px; height:18px; }
@@ -80,6 +81,25 @@
   .btn.ghost:hover { border-color:var(--accent); color:var(--fg); }
   .btn:disabled { opacity:.5; cursor:default; }
   .ver { font-size:13px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:4px 10px; }
+  /* unofficial-fork warning: a strip above everything, a badge by the name,
+     the full text under the hero */
+  .fork-strip {
+    margin:0 -16px; padding:9px 16px; background:#ffb020; color:#1b1300; font-size:14px; font-weight:600;
+    text-align:center; line-height:1.4;
+  }
+  .fork-strip a { color:#1b1300; font-weight:700; }
+  .badge-fork {
+    font-size:12px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; white-space:nowrap;
+    color:#1b1300; background:#ffb020; border-radius:999px; padding:2px 9px;
+  }
+  .disclaimer {
+    margin-top:26px; padding:16px 18px; border-radius:14px; max-width:780px;
+    border:2px solid #ffb020; background:rgba(255,176,32,.10);
+  }
+  .disclaimer h2 { font-size:19px; margin:0 0 8px; display:flex; align-items:center; gap:8px; }
+  .disclaimer h2 svg { width:22px; height:22px; color:#ffb020; flex:none; }
+  .disclaimer ul { margin:0; padding-left:20px; }
+  .disclaimer li { margin:6px 0; font-size:15px; }
   .notice {
     margin-top:22px; padding:12px 14px; border-radius:12px; background:var(--bg-alt);
     border:1px solid var(--line); color:var(--muted); font-size:14px; max-width:760px;
@@ -224,12 +244,14 @@
 </head>
 <body>
 <div class="wrap">
+  <div class="fork-strip" role="note"><span data-t="strip"></span> <a href="#avertissement" data-t="strip_l"></a></div>
   <header class="top">
     <div class="brand">
       <span class="mark" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h10M4 17h7"/><circle cx="18" cy="16" r="3"/></svg>
       </span>
       <span data-product></span>
+      <span class="badge-fork" data-t="badge"></span>
     </div>
     <div class="controls">
       <button class="pill-btn" data-lang="fr" type="button">FR</button>
@@ -248,7 +270,16 @@
         <a class="btn ghost" href="#tools" data-t="hero_tools"></a>
         <span class="ver" id="ver" hidden></span>
       </div>
-      <p class="notice" data-t="notice"></p>
+      <div class="disclaimer" id="avertissement">
+        <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><span data-t="dis_t"></span></h2>
+        <ul>
+          <li data-t="dis_1"></li>
+          <li data-t="dis_2"></li>
+          <li><span data-t="dis_3"></span> <a id="dis-issue" data-t="dis_3l"></a></li>
+          <li data-t="dis_4"></li>
+          <li data-t="dis_5"></li>
+        </ul>
+      </div>
     </section>
 
     <section id="presse">
@@ -381,6 +412,7 @@
   </main>
 
   <footer>
+    <p><b data-t="foot_0"></b></p>
     <p><span data-t="foot_1"></span> <a id="official-site"></a></p>
     <p><span data-t="foot_2"></span> <a id="source">GitHub</a> · <span data-t="foot_3"></span></p>
     <p class="copy">© 2026 Juditech3D · <span data-product></span>. <span data-t="foot_copy"></span></p>
@@ -401,7 +433,17 @@
       hero_btn: 'Installer',
       hero_tools: 'Voir les outils',
       hero_presse: 'Le mémo presse',
-      notice: P + ' est un fork non officiel du firmware TigerScale V3. Il n\'est ni édité ni soutenu par le TigerTag Project. Il reste compatible avec les puces TigerTag et Tiger Studio.',
+      strip: '⚠ Version non officielle : ce firmware est un fork personnel, ni publié ni supporté par l\'équipe TigerTag.',
+      strip_l: 'Lire l\'avertissement',
+      badge: 'Fork non officiel',
+      dis_t: 'À lire avant d\'installer',
+      dis_1: P + ' et Tiger Studio Fork sont des versions personnelles et non officielles. Elles ne sont ni publiées ni supportées par l\'équipe TigerTag / Tiger Studio.',
+      dis_2: 'Je m\'en sers pour tester des idées selon mon usage, puis je propose certaines fonctionnalités à l\'équipe officielle. Elles ne seront pas forcément intégrées dans la version d\'origine. Ce fork ne cherche pas à la remplacer.',
+      dis_3: 'L\'équipe officielle n\'est pas responsable des problèmes que ce fork pourrait causer : merci de ne pas la contacter à ce sujet. En cas de souci, c\'est moi (Juditech3D) qu\'il faut venir voir :',
+      dis_3l: 'signaler un problème',
+      dis_4: 'Tu l\'utilises à tes risques : je décline toute responsabilité en cas de problème avec ces versions.',
+      dis_5: 'Il reste compatible avec les puces TigerTag et avec Tiger Studio.',
+      foot_0: P + ' est un fork personnel et non officiel. Pour toute question sur ce fork, contacte Juditech3D, pas l\'équipe TigerTag.',
       tools_t: 'Les outils',
       tools_p: 'Tous les outils sont dans le firmware. Ceux que tu ne coches pas sont seulement cachés : tu peux les faire réapparaître à tout moment depuis l\'écran de la balance (bouton œil du menu de démarrage).',
       core: 'toujours là',
@@ -485,7 +527,17 @@
       hero_btn: 'Install',
       hero_tools: 'See the tools',
       hero_presse: 'The heat press memo',
-      notice: P + ' is an unofficial fork of the TigerScale V3 firmware. It is not published or supported by the TigerTag Project. It stays compatible with TigerTag chips and Tiger Studio.',
+      strip: '⚠ Unofficial version: this firmware is a personal fork, neither published nor supported by the TigerTag team.',
+      strip_l: 'Read the warning',
+      badge: 'Unofficial fork',
+      dis_t: 'Read this before installing',
+      dis_1: P + ' and Tiger Studio Fork are personal, unofficial versions. They are neither published nor supported by the TigerTag / Tiger Studio team.',
+      dis_2: 'I use them to try ideas for my own needs, then suggest some features to the official team. They will not necessarily make it into the original version. This fork does not try to replace it.',
+      dis_3: 'The official team is not responsible for any problem this fork may cause: please do not contact them about it. If something goes wrong, come to me (Juditech3D):',
+      dis_3l: 'report a problem',
+      dis_4: 'You use it at your own risk: I accept no liability for any problem with these versions.',
+      dis_5: 'It stays compatible with TigerTag chips and with Tiger Studio.',
+      foot_0: P + ' is a personal, unofficial fork. For any question about this fork, contact Juditech3D, not the TigerTag team.',
       tools_t: 'The tools',
       tools_p: 'Every tool is in the firmware. The ones you leave unticked are only hidden: bring them back at any time from the scale\'s screen (the eye button of the start menu).',
       core: 'always on',
@@ -761,6 +813,7 @@
     document.querySelectorAll('[data-product]').forEach(e => { e.textContent = P; });
     document.getElementById('fb-tool').href = ISSUES + '?title=' + encodeURIComponent(tr('fb_tool_title'));
     document.getElementById('fb-issue').href = ISSUES;
+    document.getElementById('dis-issue').href = ISSUES;
     document.getElementById('calib-guide').href = OFFICIAL_SITE;
     document.querySelectorAll('[data-t]').forEach(e => { e.textContent = tr(e.dataset.t); });
     document.querySelectorAll('[data-lang]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));

@@ -30,6 +30,13 @@ log lives in git history and the synthesised entry lives in the changelog.
 
 ### Changed
 
+- Unofficial-fork warning made unmissable: `README.md` opens with a full
+  caution (not published or supported by the TigerTag team, features offered
+  upstream may never be merged, problems go to this fork's issues, no
+  liability) and its title becomes "Tiger Multi-tools"; `web-installer/index.html`
+  gains a warning strip above the header, an "Unofficial fork" badge beside the
+  name, the same five-point warning under the hero (keys `strip*`, `badge`,
+  `dis_*`, `foot_0`, replacing `notice`) and "(fork non officiel)" in the title.
 - `README.md` opens with an "Unofficial alternative firmware" warning (GitHub
   alert) and gains a "What this firmware adds or changes" section: the fork's
   base version, its own installer and releases, tested on the -3.5 only, and the

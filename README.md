@@ -1,5 +1,12 @@
-> [!WARNING]
-> **Unofficial alternative firmware.** This is a personal, community-made firmware for the TigerScale. It is neither published, maintained nor supported by the TigerTag Project, and flashing it is done at your own risk.
+> [!CAUTION]
+> **Unofficial personal fork. This is not the official TigerScale V3 firmware.**
+>
+> - Tiger Studio Fork and the Tiger Multi-tools firmware for the TigerScale are personal, unofficial versions. They are neither published nor supported by the TigerTag / Tiger Studio team.
+> - I use them to try ideas for my own needs, then suggest some features to the official team. Those features will not necessarily make it into the official version. This fork does not try to replace it.
+> - The official team is not responsible for any problem this fork may cause: please do not contact them about it. If something goes wrong, come to me: [open an issue here](https://github.com/juditech3D/Tiger-Scale-V3/issues).
+> - You use it at your own risk. I accept no liability for any problem with these versions.
+>
+> Looking for the official firmware? It is here: [TigerScale V3](https://github.com/TigerTag-Project/Tiger-Scale-V3).
 
 <p align="center">
   <picture>
@@ -9,7 +16,9 @@
   </picture>
 </p>
 
-<h1 align="center">TigerScale V3</h1>
+<h1 align="center">Tiger Multi-tools</h1>
+
+<p align="center"><b>Unofficial personal fork of the TigerScale V3 firmware</b></p>
 
 <p align="center">
   <strong>The connected filament scale that knows which spool is on it.</strong><br>
