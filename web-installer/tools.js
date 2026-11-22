@@ -91,6 +91,86 @@ window.TOOLS = [
   }
 ];
 
+// How each tool works, in three parts: what it is for, what it can do, how to
+// use it. The page shows them in the "How each tool works" section, one block
+// per tool at #help-<id>, linked from its card. They describe the PUBLISHED
+// firmware: a feature still on a branch goes in the "coming soon" section of
+// index.html (SOON), never here.
+window.TOOL_HELP = {
+  "pod": {
+    "fr": [
+      "Utiliser les deux lecteurs de la balance comme un lecteur TigerPOD branché à l'ordinateur, pour travailler sur tes puces depuis Tiger Studio, sans câble.",
+      "• ouvrir la bobine d'une puce posée\n• écrire une puce vierge\n• passer une TigerTag en TigerTag+\n• restaurer ou effacer une puce\n• lire les puces Bambu Lab",
+      "1. Laisse cet outil ouvert sur la balance.\n2. Ouvre Tiger Studio sur le même réseau, avec le compte de la balance.\n3. Pose une puce sur un lecteur : Tiger Studio la voit tout de suite.\nL'écriture marche seulement tant que l'outil est ouvert."
+    ],
+    "en": [
+      "Use the scale's two readers like a TigerPOD plugged into the computer, to work on your chips from Tiger Studio, with no cable.",
+      "• open the spool of a chip put down\n• write a blank chip\n• turn a TigerTag into a TigerTag+\n• restore or erase a chip\n• read Bambu Lab chips",
+      "1. Leave this tool open on the scale.\n2. Open Tiger Studio on the same network, with the scale's account.\n3. Put a chip on a reader: Tiger Studio sees it at once.\nWriting only works while this tool is open."
+    ]
+  },
+  "parcel": {
+    "fr": [
+      "Peser un colis ou n'importe quel objet, en grammes, sans puce, sans compte et sans réseau.",
+      "• le poids en direct, en grand\n• la tare, avec ou sans carton sur le plateau\n• le même zéro que l'écran Tiger Scale\n• l'écran se rallume tout seul quand le poids bouge",
+      "1. Plateau vide, ou avec le carton vide : appuie sur TARE.\n2. Pose le colis.\n3. Lis le poids."
+    ],
+    "en": [
+      "Weigh a parcel or any object, in grams, with no chip, no account and no network.",
+      "• the live weight, in large digits\n• tare, with or without a box on the platform\n• the same zero as the Tiger Scale screen\n• the screen wakes up by itself when the weight moves",
+      "1. Empty platform, or with the empty box: press TARE.\n2. Put the parcel on.\n3. Read the weight."
+    ]
+  },
+  "caltest": {
+    "fr": [
+      "Vérifier que le capteur de poids marche bien, trouver d'où vient un poids faux ou qui saute, et recalibrer la balance.",
+      "• voir les mesures brutes du capteur\n• un diagnostic qui nomme la panne probable : fil débranché, fil mal serré, mauvais contact\n• Référence : voir si le capteur réagit quand on appuie\n• lancer la calibration",
+      "1. Plateau vide : lis le diagnostic.\n2. Touche Référence, puis appuie doucement sur le plateau : les chiffres doivent bouger.\n3. Pour recalibrer : touche Calibrer et suis les étapes avec un poids connu."
+    ],
+    "en": [
+      "Check that the load cell works, find out why a weight is wrong or jumps, and recalibrate the scale.",
+      "• see the load cell's raw readings\n• a diagnosis naming the likely fault: unplugged wire, loose wire, bad contact\n• Reference: see whether the load cell reacts when pressed\n• start the calibration",
+      "1. Empty platform: read the diagnosis.\n2. Touch Reference, then press gently on the platform: the numbers must move.\n3. To recalibrate: touch Calibrate and follow the steps with a known weight."
+    ]
+  },
+  "presse": {
+    "fr": [
+      "Retrouver d'un coup d'œil les réglages de ta presse à chaud pour chaque produit : température, temps, pression et pelage.",
+      "• tes produits rangés par technique (sublimation, DTF, flex, flocage…)\n• un minuteur de pressage lancé d'un toucher\n• une alarme à la fin, qui rappelle le pelage\n• ta propre liste, modifiable depuis l'ordinateur",
+      "1. Choisis une technique, puis un produit.\n2. Touche Démarrer en fermant la presse : le temps défile et sonne à la fin.\n3. Pour changer la liste : ouvre la page presse de la balance dans ton navigateur.\nLes valeurs d'usine sont indicatives : vérifie les fiches de tes fournisseurs."
+    ],
+    "en": [
+      "Find your heat press settings for each product at a glance: temperature, time, pressure and peel.",
+      "• your products sorted by technique (sublimation, DTF, flex, flock...)\n• a pressing timer started with one touch\n• an alarm at the end, reminding you of the peel\n• your own list, edited from the computer",
+      "1. Pick a technique, then a product.\n2. Touch Start as you close the press: the time counts down and rings at the end.\n3. To change the list: open the scale's press page in your browser.\nFactory values are a guide: check your suppliers' sheets."
+    ]
+  },
+  "count": {
+    "fr": [
+      "Compter des pièces identiques (vis, écrous, inserts, perles…) en les pesant, au lieu de les compter à la main.",
+      "• une référence de 1 à 100 pièces\n• une vérification qui rend le compte plus juste\n• la balance garde le poids d'une pièce : « Mêmes pièces » la fois suivante\n• ajoute ou retire des pièces, le compte suit",
+      "1. Pose le bac vide et appuie sur TARE.\n2. Pose le nombre de pièces choisi, puis Valider.\n3. Ajoute autant de pièces pour vérifier, puis « C'est bon, compter ».\nAstuce : si la balance dit que la référence est légère, prends plus de pièces."
+    ],
+    "en": [
+      "Count identical parts (screws, nuts, inserts, beads...) by weighing them instead of counting by hand.",
+      "• a reference of 1 to 100 parts\n• a check that makes the count more accurate\n• the scale keeps the weight of one part: \"Same parts\" next time\n• add or remove parts, the count follows",
+      "1. Put the empty tray on and press TARE.\n2. Put the chosen number of parts on, then Confirm.\n3. Add as many parts again to check, then \"Correct, count\".\nTip: if the scale says the reference is light, take more parts."
+    ]
+  },
+  "mix": {
+    "fr": [
+      "Doser une résine en deux parties (époxy, polyuréthane, silicone…) au bon rapport, au gramme près.",
+      "• le rapport A : B réglé une fois, gardé pour la fois suivante\n• le poids de B calculé d'après A\n• une barre, un bip quand c'est bon, du rouge si c'est trop",
+      "1. Pose le gobelet sur l'adaptateur, puis appuie sur TARE.\n2. Règle le rapport A : B, verse A, puis « Passer à B ».\n3. Verse B jusqu'au bip."
+    ],
+    "en": [
+      "Measure a two-part resin (epoxy, polyurethane, silicone...) at the right ratio, to the gram.",
+      "• the A : B ratio set once, kept for next time\n• the weight of B worked out from A\n• a bar, a beep when it is right, red when it is too much",
+      "1. Put the cup on the adapter, then press TARE.\n2. Set the A : B ratio, pour A, then \"Go to B\".\n3. Pour B until the beep."
+    ]
+  }
+};
+
 // Line icons, 24x24, stroke = currentColor.
 window.TOOL_ICONS = {
   spool: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3"/><path d="M12 3.5v5.5M12 15v5.5"/>',

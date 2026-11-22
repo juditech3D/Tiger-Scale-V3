@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tiger Multi-tools — firmware multi-outils pour balance TigerScale V3</title>
-<meta name="description" content="Un firmware non officiel pour la balance TigerScale V3 : la pesée des bobines plus des outils au choix (TigerPOD, pèse-colis, calibration, mémo presse), installé depuis le navigateur.">
+<title>Tiger Multi-tools (fork non officiel) — firmware multi-outils pour balance TigerScale V3</title>
+<meta name="description" content="Un firmware personnel et non officiel, ni publié ni supporté par l'équipe TigerTag pour la balance TigerScale V3 : la pesée des bobines plus des outils au choix (TigerPOD, pèse-colis, calibration, mémo presse), installé depuis le navigateur.">
 <meta name="theme-color" content="#0d0f14">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
@@ -53,7 +53,8 @@
   button { font:inherit; }
 
   /* top bar */
-  .top { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 0 8px; }
+  .top { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:18px 0 8px; }
+  .brand > span[data-product] { white-space:nowrap; }
   .brand { display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:.2px; }
   .brand .mark { width:30px; height:30px; border-radius:8px; background:var(--accent); display:grid; place-items:center; color:#fff; }
   .brand .mark svg { width:18px; height:18px; }
@@ -80,6 +81,25 @@
   .btn.ghost:hover { border-color:var(--accent); color:var(--fg); }
   .btn:disabled { opacity:.5; cursor:default; }
   .ver { font-size:13px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:4px 10px; }
+  /* unofficial-fork warning: a strip above everything, a badge by the name,
+     the full text under the hero */
+  .fork-strip {
+    margin:0 -16px; padding:9px 16px; background:#ffb020; color:#1b1300; font-size:14px; font-weight:600;
+    text-align:center; line-height:1.4;
+  }
+  .fork-strip a { color:#1b1300; font-weight:700; }
+  .badge-fork {
+    font-size:12px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; white-space:nowrap;
+    color:#1b1300; background:#ffb020; border-radius:999px; padding:2px 9px;
+  }
+  .disclaimer {
+    margin-top:26px; padding:16px 18px; border-radius:14px; max-width:780px;
+    border:2px solid #ffb020; background:rgba(255,176,32,.10);
+  }
+  .disclaimer h2 { font-size:19px; margin:0 0 8px; display:flex; align-items:center; gap:8px; }
+  .disclaimer h2 svg { width:22px; height:22px; color:#ffb020; flex:none; }
+  .disclaimer ul { margin:0; padding-left:20px; }
+  .disclaimer li { margin:6px 0; font-size:15px; }
   .notice {
     margin-top:22px; padding:12px 14px; border-radius:12px; background:var(--bg-alt);
     border:1px solid var(--line); color:var(--muted); font-size:14px; max-width:760px;
@@ -102,6 +122,23 @@
   .acc { margin-top:10px; font-size:14px; color:var(--fg); display:flex; gap:6px; align-items:flex-start; }
   .acc svg { width:16px; height:16px; flex:0 0 auto; margin-top:3px; color:var(--accent); }
   .acc .soon { color:var(--muted); }
+  .card .how { display:inline-block; margin-top:10px; font-size:14px; font-weight:600; color:var(--accent); text-decoration:none; }
+  .card .how:hover { text-decoration:underline; }
+  /* how each tool works: one block per tool, three cards, as on the scale */
+  .guide { display:flex; flex-direction:column; gap:22px; }
+  .guide article { scroll-margin-top:16px; }
+  .guide h3 { margin:0 0 10px; font-size:19px; display:flex; align-items:center; gap:10px; }
+  .guide h3 i { width:12px; height:12px; border-radius:50%; flex:0 0 auto; }
+  .guide .grid { grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); }
+  .guide h4 { margin:0 0 6px; font-size:15px; }
+  .guide .card p { white-space:pre-line; min-width:0; }
+  /* coming soon: what is not in a published version yet */
+  .soon-grp { margin:0 0 10px; font-size:16px; color:var(--muted); font-weight:600; }
+  .soon-grp + .grid { margin-bottom:22px; }
+  .card .state { display:inline-block; margin-top:10px; font-size:12px; font-weight:600; border-radius:999px; padding:2px 10px; }
+  .card .state.next { color:var(--ok); border:1px solid var(--ok); }
+  .card .state.ok { color:var(--ok); border:1px solid var(--ok); }
+  .card .state.prep { color:var(--muted); border:1px solid var(--line); }
   .tag { display:inline-block; font-size:12px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:1px 8px; margin-left:6px; vertical-align:middle; font-weight:500; }
 
   /* install steps */
@@ -164,17 +201,31 @@
   .spot ul { margin:14px 0 0; padding-left:20px; color:var(--muted); }
   .spot li { margin:6px 0; }
   .spot li b { color:var(--fg); font-weight:600; }
-  .screen { background:#0b0d12; color:#f2f4f8; border-radius:14px; border:6px solid #262b35; padding:14px; font-size:14px; }
-  .screen .crumb { color:#a0a7b5; font-size:12px; margin-bottom:8px; }
-  .screen .crumb b { color:#2980b9; }
-  .screen .vals { display:grid; grid-template-columns:repeat(2, 1fr); gap:8px; }
-  .screen .v { background:#161a22; border-radius:10px; padding:8px 10px; }
-  .screen .v small { display:block; color:#a0a7b5; font-size:11px; }
-  .screen .v b { font-size:22px; }
-  .screen .timer { margin-top:10px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
-  .screen .bar { flex:1; height:8px; border-radius:4px; background:#262b35; overflow:hidden; }
-  .screen .bar i { display:block; width:62%; height:100%; background:#3fc8e4; }
-  .screen .go { background:#e24b4a; border-radius:8px; padding:6px 12px; font-weight:600; font-size:13px; }
+  /* The heat press memo's settings screen, drawn at the panel's 480x320
+     proportions: every size is in cqw (1cqw = 4.8 panel px), so it scales as one. */
+  .shot { min-width:0; }
+  .screen { container-type:inline-size; position:relative; aspect-ratio:3/2; border-radius:14px; border:6px solid #262b35; overflow:hidden;
+    background:linear-gradient(180deg,#3a1408,#0e0a10); color:#fff; font-family:Montserrat,system-ui,sans-serif; }
+  .screen .hd { position:absolute; left:0; top:0; width:100%; height:10cqw; display:flex; align-items:center; font-weight:600; }
+  .screen .hd .bk { width:11.7cqw; text-align:center; font-size:5.4cqw; }
+  .screen .hd .tt { font-size:4.2cqw; }
+  .screen .gl { position:absolute; box-sizing:border-box; background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.14); border-radius:2.9cqw; }
+  .screen .k { font-size:2.5cqw; color:rgba(255,255,255,.6); text-transform:uppercase; letter-spacing:.04em; }
+  .screen .ring { position:absolute; left:2.9cqw; top:12.1cqw; width:39.2cqw; height:39.2cqw; }
+  .screen .ring svg { position:absolute; inset:0; width:100%; height:100%; }
+  .screen .ring .mid { position:absolute; inset:0; display:grid; place-items:center; text-align:center; color:#4fd1ee; }
+  .screen .ring .mid b { display:block; font-size:10cqw; line-height:1; }
+  .screen .ring .mid small { display:block; font-size:2.9cqw; color:rgba(255,255,255,.6); margin-top:.8cqw; }
+  .screen .tc { left:45cqw; top:12.1cqw; width:52.5cqw; height:15.8cqw; padding:1.7cqw 2.9cqw; }
+  .screen .tc .v { font-size:8.3cqw; font-weight:700; line-height:1.1; color:#ff9a4d; }
+  .screen .tc .v small { font-size:4.2cqw; margin-left:.8cqw; }
+  .screen .mi { top:29.6cqw; width:25.2cqw; height:11.3cqw; padding:1.2cqw 2.1cqw; }
+  .screen .mi .v { font-size:3.3cqw; font-weight:700; }
+  .screen .nt { position:absolute; left:45cqw; top:42.5cqw; width:52.5cqw; font-size:2.7cqw; line-height:1.3; color:#ffd66b; }
+  .screen .go { position:absolute; left:2.5cqw; top:53.75cqw; width:95cqw; height:10.8cqw; border-radius:5.4cqw; display:grid; place-items:center;
+    background:#c8462f; font-size:4.2cqw; font-weight:700; }
+  .shot .soon-tag { display:inline-block; margin-top:10px; font-size:12px; font-weight:600; border-radius:999px; padding:2px 10px;
+    color:var(--muted); border:1px solid var(--line); }
   @media (max-width:760px) { .spot { grid-template-columns:1fr; padding:18px; } }
   ol.first { margin:12px 0 0; padding-left:22px; }
   ol.first li { margin:8px 0; color:var(--muted); }
@@ -194,12 +245,14 @@
 </head>
 <body>
 <div class="wrap">
+  <div class="fork-strip" role="note"><span data-t="strip"></span> <a href="#avertissement" data-t="strip_l"></a></div>
   <header class="top">
     <div class="brand">
       <span class="mark" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h10M4 17h7"/><circle cx="18" cy="16" r="3"/></svg>
       </span>
       <span data-product></span>
+      <span class="badge-fork" data-t="badge"></span>
     </div>
     <div class="controls">
       <button class="pill-btn" data-lang="fr" type="button">FR</button>
@@ -218,7 +271,16 @@
         <a class="btn ghost" href="#tools" data-t="hero_tools"></a>
         <span class="ver" id="ver" hidden></span>
       </div>
-      <p class="notice" data-t="notice"></p>
+      <div class="disclaimer" id="avertissement">
+        <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><span data-t="dis_t"></span></h2>
+        <ul>
+          <li data-t="dis_1"></li>
+          <li data-t="dis_2"></li>
+          <li><span data-t="dis_3"></span> <a id="dis-issue" data-t="dis_3l"></a></li>
+          <li data-t="dis_4"></li>
+          <li data-t="dis_5"></li>
+        </ul>
+      </div>
     </section>
 
     <section id="presse">
@@ -234,15 +296,21 @@
             <li><b data-t="pr_l4b"></b> <span data-t="pr_l4"></span></li>
           </ul>
         </div>
-        <div class="screen" aria-hidden="true">
-          <div class="crumb"><b>DTF</b> › <span data-t="pr_ex_item"></span></div>
-          <div class="vals">
-            <div class="v"><small data-t="pr_ex_temp"></small><b>160 °C</b></div>
-            <div class="v"><small data-t="pr_ex_time"></small><b>15 s</b></div>
-            <div class="v"><small data-t="pr_ex_press"></small><b data-t="pr_ex_pressv"></b></div>
-            <div class="v"><small data-t="pr_ex_peel"></small><b data-t="pr_ex_peelv"></b></div>
+        <div class="shot">
+          <div class="screen" aria-hidden="true">
+            <div class="hd"><span class="bk">‹</span><span class="tt" data-t="pr_ex_item"></span></div>
+            <div class="ring">
+              <svg viewBox="0 0 188 188"><circle cx="94" cy="94" r="82" fill="rgba(0,0,0,.25)" stroke="rgba(255,255,255,.12)" stroke-width="12"/>
+                <circle cx="94" cy="94" r="82" fill="none" stroke="#4fd1ee" stroke-width="12" stroke-linecap="round" stroke-dasharray="515.2" stroke-dashoffset="309" transform="rotate(-90 94 94)"/></svg>
+              <div class="mid"><div><b>6</b><small data-t="pr_ex_sec"></small></div></div>
+            </div>
+            <div class="gl tc"><div class="k" data-t="pr_ex_temp"></div><div class="v">160<small>°C</small></div></div>
+            <div class="gl mi" style="left:45cqw"><div class="k" data-t="pr_ex_press"></div><div class="v" data-t="pr_ex_pressv"></div></div>
+            <div class="gl mi" style="left:72.3cqw"><div class="k" data-t="pr_ex_peel"></div><div class="v" data-t="pr_ex_peelv"></div></div>
+            <div class="nt" data-t="pr_ex_note"></div>
+            <div class="go" data-t="pr_ex_stop"></div>
           </div>
-          <div class="timer"><div class="bar"><i></i></div><span>0:06</span><span class="go" data-t="pr_ex_stop"></span></div>
+          <span class="soon-tag" data-t="pr_ex_soon"></span>
         </div>
       </div>
     </section>
@@ -253,6 +321,12 @@
       <div class="grid" id="cards"></div>
     </section>
 
+    <section id="guide">
+      <h2 data-t="guide_t"></h2>
+      <p class="sub" data-t="guide_p"></p>
+      <div class="guide" id="guide-list"></div>
+    </section>
+
     <section id="more">
       <h2 data-t="more_t"></h2>
       <p class="sub" data-t="more_p"></p>
@@ -261,6 +335,22 @@
         <div class="card"><div class="ic feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12a7 7 0 0 1 2-5M19 12a7 7 0 0 0-2-5M8.5 12a3.5 3.5 0 0 1 1-2.5M15.5 12a3.5 3.5 0 0 0-1-2.5"/><circle cx="12" cy="12" r="1.2"/><path d="M12 13.5V20"/></svg></div><h3 data-t="f_rfid_t"></h3><p data-t="f_rfid_p"></p></div>
         <div class="card"><div class="ic feat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg></div><h3 data-t="f_ota_t"></h3><p data-t="f_ota_p"></p></div>
       </div>
+    </section>
+
+    <section id="studio">
+      <h2 data-t="st_t"></h2>
+      <p class="sub" data-t="st_p"></p>
+      <div class="grid" id="studio-has"></div>
+      <div class="cta" style="margin-top:16px"><a class="btn ghost" id="studio-dl" data-t="st_btn"></a></div>
+    </section>
+
+    <section id="soon">
+      <h2 data-t="soon_t"></h2>
+      <p class="sub" data-t="soon_p"></p>
+      <h3 class="soon-grp" data-t="soon_scale"></h3>
+      <div class="grid" id="soon-scale"></div>
+      <h3 class="soon-grp" data-t="soon_studio"></h3>
+      <div class="grid" id="soon-studio"></div>
     </section>
 
     <section id="install">
@@ -330,6 +420,7 @@
   </main>
 
   <footer>
+    <p><b data-t="foot_0"></b></p>
     <p><span data-t="foot_1"></span> <a id="official-site"></a></p>
     <p><span data-t="foot_2"></span> <a id="source">GitHub</a> · <span data-t="foot_3"></span></p>
     <p class="copy">© 2026 Juditech3D · <span data-product></span>. <span data-t="foot_copy"></span></p>
@@ -350,7 +441,17 @@
       hero_btn: 'Installer',
       hero_tools: 'Voir les outils',
       hero_presse: 'Le mémo presse',
-      notice: P + ' est un fork non officiel du firmware TigerScale V3. Il n\'est ni édité ni soutenu par le TigerTag Project. Il reste compatible avec les puces TigerTag et Tiger Studio.',
+      strip: '⚠ Version non officielle : ce firmware est un fork personnel, ni publié ni supporté par l\'équipe TigerTag.',
+      strip_l: 'Lire l\'avertissement',
+      badge: 'Fork non officiel',
+      dis_t: 'À lire avant d\'installer',
+      dis_1: P + ' et Tiger Studio Fork sont des versions personnelles et non officielles. Elles ne sont ni publiées ni supportées par l\'équipe TigerTag / Tiger Studio.',
+      dis_2: 'Je m\'en sers pour tester des idées selon mon usage, puis je propose certaines fonctionnalités à l\'équipe officielle. Elles ne seront pas forcément intégrées dans la version d\'origine. Ce fork ne cherche pas à la remplacer.',
+      dis_3: 'L\'équipe officielle n\'est pas responsable des problèmes que ce fork pourrait causer : merci de ne pas la contacter à ce sujet. En cas de souci, c\'est moi (Juditech3D) qu\'il faut venir voir :',
+      dis_3l: 'signaler un problème',
+      dis_4: 'Tu l\'utilises à tes risques : je décline toute responsabilité en cas de problème avec ces versions.',
+      dis_5: 'Il reste compatible avec les puces TigerTag et avec Tiger Studio.',
+      foot_0: P + ' est un fork personnel et non officiel. Pour toute question sur ce fork, contacte Juditech3D, pas l\'équipe TigerTag.',
       tools_t: 'Les outils',
       tools_p: 'Tous les outils sont dans le firmware. Ceux que tu ne coches pas sont seulement cachés : tu peux les faire réapparaître à tout moment depuis l\'écran de la balance (bouton œil du menu de démarrage).',
       core: 'toujours là',
@@ -394,6 +495,8 @@
       pr_l4b: 'Ta liste, à ta façon.', pr_l4: 'Elle se modifie depuis un navigateur, sur le réseau de l\'atelier. Une liste de départ est fournie.',
       pr_ex_item: 'Coton', pr_ex_temp: 'Température', pr_ex_time: 'Temps', pr_ex_press: 'Pression', pr_ex_pressv: 'Forte',
       pr_ex_peel: 'Pelage', pr_ex_peelv: 'Froid', pr_ex_stop: 'Arrêter',
+      pr_ex_sec: 'secondes', pr_ex_note: 'Repressage 10 s avec papier après pelage',
+      pr_ex_soon: 'Le nouvel écran du mémo presse, à venir',
       b_tested: 'Testé par l\'auteur sur la carte 3.5. La 3.5B n\'a pas encore été testée sur une vraie balance : si tu l\'essaies, ton retour est le bienvenu.',
       s5: 'Avant la première utilisation',
       s5_p: 'Deux réglages à faire une fois, sur la balance, avant de peser ou de lire des bobines :',
@@ -405,6 +508,22 @@
       fb_tool: 'Proposer un outil',
       fb_tool_title: 'Idée d\'outil : ',
       fb_issue: 'Signaler un problème ou donner ton avis',
+      guide_t: 'Comment marche chaque outil',
+      guide_p: 'Pour chaque outil : à quoi il sert, ce qu\'on peut faire, et comment faire.',
+      help_link: 'Comment ça marche ?',
+      help_what: 'À quoi ça sert ?',
+      help_can: 'Ce qu\'on peut faire',
+      help_how: 'Comment faire',
+      soon_t: 'À venir',
+      soon_p: 'Ce qui se prépare et n\'est pas encore dans une version publiée. Rien de tout ça n\'est installé par le bouton ci-dessous pour l\'instant : chaque nouveauté arrivera par une mise à jour, une fois vérifiée.',
+      soon_scale: 'Sur la balance',
+      soon_studio: 'Dans le Tiger Studio du fork',
+      soon_next: 'Prochaine version',
+      soon_prep: 'En préparation',
+      st_t: 'Déjà dans Tiger Studio Fork',
+      st_p: 'Le Tiger Studio du fork (version 2.59.2-fork.4, pour Windows et Linux) ajoute ces fonctions à l\'appli d\'origine. Comme le firmware, c\'est une version personnelle et non officielle.',
+      st_btn: 'Télécharger Tiger Studio Fork',
+      st_ok: 'Disponible',
       more_t: 'Et aussi sur la balance',
       more_p: 'Des améliorations qui valent pour tout le firmware, pas pour un seul outil.',
       f_sleep_t: 'Veille partout',
@@ -420,7 +539,17 @@
       hero_btn: 'Install',
       hero_tools: 'See the tools',
       hero_presse: 'The heat press memo',
-      notice: P + ' is an unofficial fork of the TigerScale V3 firmware. It is not published or supported by the TigerTag Project. It stays compatible with TigerTag chips and Tiger Studio.',
+      strip: '⚠ Unofficial version: this firmware is a personal fork, neither published nor supported by the TigerTag team.',
+      strip_l: 'Read the warning',
+      badge: 'Unofficial fork',
+      dis_t: 'Read this before installing',
+      dis_1: P + ' and Tiger Studio Fork are personal, unofficial versions. They are neither published nor supported by the TigerTag / Tiger Studio team.',
+      dis_2: 'I use them to try ideas for my own needs, then suggest some features to the official team. They will not necessarily make it into the original version. This fork does not try to replace it.',
+      dis_3: 'The official team is not responsible for any problem this fork may cause: please do not contact them about it. If something goes wrong, come to me (Juditech3D):',
+      dis_3l: 'report a problem',
+      dis_4: 'You use it at your own risk: I accept no liability for any problem with these versions.',
+      dis_5: 'It stays compatible with TigerTag chips and with Tiger Studio.',
+      foot_0: P + ' is a personal, unofficial fork. For any question about this fork, contact Juditech3D, not the TigerTag team.',
       tools_t: 'The tools',
       tools_p: 'Every tool is in the firmware. The ones you leave unticked are only hidden: bring them back at any time from the scale\'s screen (the eye button of the start menu).',
       core: 'always on',
@@ -464,6 +593,8 @@
       pr_l4b: 'Your list, your way.', pr_l4: 'Edit it from a browser on the workshop network. A starter list is included.',
       pr_ex_item: 'Cotton', pr_ex_temp: 'Temperature', pr_ex_time: 'Time', pr_ex_press: 'Pressure', pr_ex_pressv: 'Firm',
       pr_ex_peel: 'Peel', pr_ex_peelv: 'Cold', pr_ex_stop: 'Stop',
+      pr_ex_sec: 'seconds', pr_ex_note: 'Press again 10 s with paper after peeling',
+      pr_ex_soon: 'The heat press memo\'s new screen, coming soon',
       b_tested: 'Tested by the author on the 3.5 board. The 3.5B has not been tested on a real scale yet: if you try it, your feedback is welcome.',
       s5: 'Before first use',
       s5_p: 'Two settings to make once, on the scale, before weighing or reading spools:',
@@ -475,6 +606,22 @@
       fb_tool: 'Suggest a tool',
       fb_tool_title: 'Tool idea: ',
       fb_issue: 'Report a problem or give feedback',
+      guide_t: 'How each tool works',
+      guide_p: 'For each tool: what it is for, what you can do, and how to use it.',
+      help_link: 'How does it work?',
+      help_what: 'What is it for?',
+      help_can: 'What you can do',
+      help_how: 'How to use it',
+      soon_t: 'Coming soon',
+      soon_p: 'What is being prepared and is not in a published version yet. None of it is installed by the button below for now: each one will come as an update, once it has been checked.',
+      soon_scale: 'On the scale',
+      soon_studio: 'In this fork\'s Tiger Studio',
+      soon_next: 'Next version',
+      soon_prep: 'In preparation',
+      st_t: 'Already in Tiger Studio Fork',
+      st_p: 'This fork\'s Tiger Studio (version 2.59.2-fork.4, for Windows and Linux) adds these features to the original app. Like the firmware, it is a personal, unofficial version.',
+      st_btn: 'Download Tiger Studio Fork',
+      st_ok: 'Available',
       more_t: 'Also on the scale',
       more_p: 'Improvements that apply to the whole firmware, not to a single tool.',
       f_sleep_t: 'Sleep everywhere',
@@ -553,7 +700,111 @@
       p.textContent = t.desc[lang];
       c.append(ic, h, p);
       if (t.needs) c.append(needs(t));
+      if (window.TOOL_HELP[t.id]) {
+        const a = document.createElement('a');
+        a.className = 'how'; a.href = '#help-' + t.id; a.textContent = tr('help_link');
+        c.append(a);
+      }
       box.append(c);
+    });
+  }
+
+  // One block per tool with help, at #help-<id>: the links on the cards, and
+  // links from elsewhere, land on it directly.
+  function drawGuide() {
+    const box = document.getElementById('guide-list');
+    box.textContent = '';
+    window.TOOLS.forEach(t => {
+      const help = window.TOOL_HELP[t.id];
+      if (!help) return;
+      const art = document.createElement('article');
+      art.id = 'help-' + t.id;
+      const h = document.createElement('h3');
+      const dot = document.createElement('i'); dot.style.background = t.color;
+      h.append(dot, document.createTextNode(t.name[lang]));
+      const g = document.createElement('div'); g.className = 'grid';
+      ['help_what', 'help_can', 'help_how'].forEach((k, i) => {
+        const c = document.createElement('div'); c.className = 'card';
+        const t4 = document.createElement('h4'); t4.textContent = tr(k);
+        const p = document.createElement('p'); p.textContent = help[lang][i];
+        c.append(t4, p); g.append(c);
+      });
+      art.append(h, g); box.append(art);
+    });
+  }
+
+  // What is not published yet. `next`: checked and waiting for the next
+  // version; otherwise still in preparation. Move an entry out of here (into
+  // tools.js or the "Also on the scale" cards) the day its version is out.
+  const SOON = {
+    scale: [
+      { next: true,
+        fr: ['TigerPOD : alerte « 1 puce sur 2 »', 'Quand une seule des deux puces d\'une bobine Bambu Lab est lue, une barre jaune te prévient, avec un bouton qui lance le réglage RFID automatique.'],
+        en: ['TigerPOD: "1 chip of 2" alert', 'When only one of the two chips of a Bambu Lab spool is read, a yellow bar tells you, with a button that starts the automatic RFID setting.'] },
+      { fr: ['Outil Minuterie', 'Jusqu\'à 3 minuteries en même temps, chacune avec son nom (« vernis », « séchage »…), en compte à rebours ou en chrono, avec tes durées favorites.'],
+        en: ['Timer tool', 'Up to 3 timers at once, each with its own name ("varnish", "drying"...), counting down or up, with your favourite durations.'] },
+      { fr: ['Dosage résine : pré-réglages et temps de travail', 'Choisis ta résine dans une liste (époxy 1:1, 2:1, silicone…) ou crée la tienne, puis un minuteur te dit combien de temps il reste avant que le mélange prenne.'],
+        en: ['Resin mixing: presets and working time', 'Pick your resin from a list (epoxy 1:1, 2:1, silicone...) or make your own, then a timer tells you how long is left before the mix sets.'] },
+      { fr: ['Nouveau mémo presse à chaud', 'Un écran tout neuf, des fonds au choix ou ta propre photo, et 38 produits déjà réglés.'],
+        en: ['New heat press memo', 'A brand new screen, backgrounds to choose from or your own photo, and 38 products already set.'] },
+      { fr: ['Pèse-colis connecté au PC', 'Le poids du colis s\'affiche sur ton PC, prêt à copier dans ton site d\'envoi.'],
+        en: ['Parcel scale connected to the PC', 'The parcel\'s weight shows on your PC, ready to copy into your shipping site.'] },
+      { fr: ['Aide « ? » dans chaque outil', 'Trois petites cartes expliquent chaque outil sur l\'écran : à quoi il sert, ce qu\'on peut faire et comment faire.'],
+        en: ['"?" help in every tool', 'Three short cards explain each tool on the screen: what it is for, what you can do and how.'] },
+      { fr: ['Réveil de l\'écran à distance', 'L\'écran de la balance se rallume depuis Tiger Studio Fork (bouton Réveiller), sans la toucher. Le bouton est déjà dans Studio, mais il faut ce prochain firmware pour qu\'il marche.'],
+        en: ['Wake the screen remotely', 'The scale\'s screen turns back on from Tiger Studio Fork (Wake up button), without touching it. The button is already in Studio, but it needs this next firmware to work.'] }
+    ],
+    studio: [
+      { fr: ['Version macOS', 'Le Tiger Studio du fork s\'installera aussi sur Mac (Apple Silicon et Intel).'],
+        en: ['macOS version', 'This fork\'s Tiger Studio will also install on a Mac (Apple Silicon and Intel).'] }
+    ]
+  };
+
+  // What the fork's Tiger Studio already ships (published releases only).
+  const STUDIO_HAS = [
+    { fr: ['La balance en lecteur TigerPOD', 'Avec l\'outil TigerPOD ouvert, les deux lecteurs de la balance apparaissent dans Studio comme des lecteurs RFID : ouvrir, écrire, restaurer ou effacer une puce.'],
+      en: ['The scale as a TigerPOD reader', 'With the TigerPOD tool open, the scale\'s two readers show up in Studio as RFID readers: open, write, restore or erase a chip.'] },
+    { fr: ['Puces Bambu Lab', 'Une puce Bambu Lab est lue (matière, couleur, poids, températures). La bobine n\'est ajoutée qu\'une fois ses deux puces lues, et Studio dit laquelle manque.'],
+      en: ['Bambu Lab chips', 'A Bambu Lab chip is read (material, colour, weight, temperatures). The spool is added only once both its chips are read, and Studio says which one is missing.'] },
+    { fr: ['Scanner de codes-barres', 'Un code scanné ouvre le produit du catalogue, partout dans l\'appli. Un bouton choisit où il agit : partout, seulement dans la recherche, ou pas du tout.'],
+      en: ['Barcode scanner', 'A scanned code opens the catalogue product, anywhere in the app. A button chooses where it acts: anywhere, only in the search bar, or not at all.'] },
+    { fr: ['Impression directe des étiquettes', 'Sur une Marklife P15 (Bluetooth), une Brother QL (réseau) ou une imprimante installée, sans passer par la fenêtre d\'impression.'],
+      en: ['Direct label printing', 'On a Marklife P15 (Bluetooth), a Brother QL (network) or an installed printer, without the print dialog.'] },
+    { fr: ['Étiquettes sur A4 et en lot', 'Plusieurs étiquettes par feuille A4, le nombre de copies, ou une étiquette par bobine cochée, en une seule fois.'],
+      en: ['Labels on A4 and in batches', 'Several labels per A4 sheet, the number of copies, or one label per ticked spool, in one go.'] },
+    { fr: ['Valeurs choisies sur l\'étiquette', 'Un grand dessin de l\'étiquette : clique sur une ligne pour choisir ce qu\'elle affiche.'],
+      en: ['Values chosen on the label', 'A large drawing of the label: click a line to choose what it shows.'] },
+    { fr: ['Caméras et plans', 'Afficher ou couper toutes les caméras d\'un coup. La molette fait défiler les plans, Ctrl + molette zoome.'],
+      en: ['Cameras and plans', 'Show or stop all cameras at once. The wheel scrolls the plans, Ctrl + wheel zooms.'] },
+    { fr: ['Tout sélectionner', 'Dans les vues en tuiles, un bouton coche toutes les bobines affichées par le filtre.'],
+      en: ['Select all', 'In the tile views, a button ticks every spool the filter shows.'] }
+  ];
+
+  function drawStudio() {
+    const box = document.getElementById('studio-has');
+    box.textContent = '';
+    STUDIO_HAS.forEach(f => {
+      const c = document.createElement('div'); c.className = 'card';
+      const h = document.createElement('h3'); h.textContent = f[lang][0];
+      const p = document.createElement('p'); p.textContent = f[lang][1];
+      const st = document.createElement('span'); st.className = 'state ok'; st.textContent = tr('st_ok');
+      c.append(h, p, st); box.append(c);
+    });
+  }
+
+  function drawSoon() {
+    ['scale', 'studio'].forEach(k => {
+      const box = document.getElementById('soon-' + k);
+      box.textContent = '';
+      SOON[k].forEach(f => {
+        const c = document.createElement('div'); c.className = 'card';
+        const h = document.createElement('h3'); h.textContent = f[lang][0];
+        const p = document.createElement('p'); p.textContent = f[lang][1];
+        const st = document.createElement('span');
+        st.className = 'state ' + (f.next ? 'next' : 'prep');
+        st.textContent = tr(f.next ? 'soon_next' : 'soon_prep');
+        c.append(h, p, st); box.append(c);
+      });
     });
   }
 
@@ -600,11 +851,16 @@
     document.querySelectorAll('[data-product]').forEach(e => { e.textContent = P; });
     document.getElementById('fb-tool').href = ISSUES + '?title=' + encodeURIComponent(tr('fb_tool_title'));
     document.getElementById('fb-issue').href = ISSUES;
+    document.getElementById('dis-issue').href = ISSUES;
+    document.getElementById('studio-dl').href = 'https://github.com/juditech3D/TigerTag-Studio-Manager/releases/latest';
     document.getElementById('calib-guide').href = OFFICIAL_SITE;
     document.querySelectorAll('[data-t]').forEach(e => { e.textContent = tr(e.dataset.t); });
     document.querySelectorAll('[data-lang]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
     paintTheme();
     drawCards();
+    drawGuide();
+    drawStudio();
+    drawSoon();
     drawPicker();
   }
   document.querySelectorAll('[data-lang]').forEach(b => b.addEventListener('click', () => {
@@ -713,6 +969,12 @@
   });
 
   applyLang();
+  // The tool blocks are drawn by the script, after the browser has already
+  // looked for the #help-<id> target: scroll to it now that it exists.
+  if (location.hash.startsWith('#help-')) {
+    const target = document.getElementById(location.hash.slice(1));
+    if (target) target.scrollIntoView();
+  }
 })();
 </script>
 </body>
