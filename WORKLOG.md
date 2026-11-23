@@ -30,6 +30,7 @@ log lives in git history and the synthesised entry lives in the changelog.
 
 ### Changed
 
+- `web-installer/index.html`: the heat press memo spotlight becomes a tour of the published tools (`#apercu`): one slide per entry of `TOOLS`, its bullets from `TOOL_HELP`, swipeable, arrows and dots, advancing every 30 s (stops on interaction, never with reduced motion). Keys `tour_*` replace `pr_*`.
 - `web-installer/index.html`: new "Already in Tiger Studio Fork" section (`STUDIO_HAS`, keys `st_*`) listing what fork.1-fork.4 ship, with a download button; the Studio items already released leave "Coming soon", which keeps only the macOS build.
 - Unofficial-fork warning made unmissable: `README.md` opens with a full
   caution (not published or supported by the TigerTag team, features offered
