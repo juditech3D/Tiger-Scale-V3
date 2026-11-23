@@ -193,40 +193,32 @@
   .serial-warn { display:none; }
   .no-serial .serial-warn { display:block; }
 
-  /* heat press memo spotlight */
-  .spot { display:grid; grid-template-columns:1.15fr 1fr; gap:22px; align-items:center;
-    background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:24px; box-shadow:var(--shadow); }
-  .spot .kicker { display:inline-block; font-size:13px; font-weight:600; color:#e24b4a; border:1px solid #e24b4a55;
-    background:#e24b4a18; border-radius:999px; padding:3px 10px; margin-bottom:10px; }
-  .spot ul { margin:14px 0 0; padding-left:20px; color:var(--muted); }
-  .spot li { margin:6px 0; }
-  .spot li b { color:var(--fg); font-weight:600; }
-  /* The heat press memo's settings screen, drawn at the panel's 480x320
-     proportions: every size is in cqw (1cqw = 4.8 panel px), so it scales as one. */
-  .shot { min-width:0; }
-  .screen { container-type:inline-size; position:relative; aspect-ratio:3/2; border-radius:14px; border:6px solid #262b35; overflow:hidden;
-    background:linear-gradient(180deg,#3a1408,#0e0a10); color:#fff; font-family:Montserrat,system-ui,sans-serif; }
-  .screen .hd { position:absolute; left:0; top:0; width:100%; height:10cqw; display:flex; align-items:center; font-weight:600; }
-  .screen .hd .bk { width:11.7cqw; text-align:center; font-size:5.4cqw; }
-  .screen .hd .tt { font-size:4.2cqw; }
-  .screen .gl { position:absolute; box-sizing:border-box; background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.14); border-radius:2.9cqw; }
-  .screen .k { font-size:2.5cqw; color:rgba(255,255,255,.6); text-transform:uppercase; letter-spacing:.04em; }
-  .screen .ring { position:absolute; left:2.9cqw; top:12.1cqw; width:39.2cqw; height:39.2cqw; }
-  .screen .ring svg { position:absolute; inset:0; width:100%; height:100%; }
-  .screen .ring .mid { position:absolute; inset:0; display:grid; place-items:center; text-align:center; color:#4fd1ee; }
-  .screen .ring .mid b { display:block; font-size:10cqw; line-height:1; }
-  .screen .ring .mid small { display:block; font-size:2.9cqw; color:rgba(255,255,255,.6); margin-top:.8cqw; }
-  .screen .tc { left:45cqw; top:12.1cqw; width:52.5cqw; height:15.8cqw; padding:1.7cqw 2.9cqw; }
-  .screen .tc .v { font-size:8.3cqw; font-weight:700; line-height:1.1; color:#ff9a4d; }
-  .screen .tc .v small { font-size:4.2cqw; margin-left:.8cqw; }
-  .screen .mi { top:29.6cqw; width:25.2cqw; height:11.3cqw; padding:1.2cqw 2.1cqw; }
-  .screen .mi .v { font-size:3.3cqw; font-weight:700; }
-  .screen .nt { position:absolute; left:45cqw; top:42.5cqw; width:52.5cqw; font-size:2.7cqw; line-height:1.3; color:#ffd66b; }
-  .screen .go { position:absolute; left:2.5cqw; top:53.75cqw; width:95cqw; height:10.8cqw; border-radius:5.4cqw; display:grid; place-items:center;
-    background:#c8462f; font-size:4.2cqw; font-weight:700; }
-  .shot .soon-tag { display:inline-block; margin-top:10px; font-size:12px; font-weight:600; border-radius:999px; padding:2px 10px;
-    color:var(--muted); border:1px solid var(--line); }
-  @media (max-width:760px) { .spot { grid-template-columns:1fr; padding:18px; } }
+  /* tools tour: one slide per published tool, scroll-snapped so a finger swipes it */
+  .tour { position:relative; background:var(--panel); border:1px solid var(--line); border-radius:18px; box-shadow:var(--shadow); overflow:hidden; }
+  .tour-track { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; scroll-behavior:smooth; scrollbar-width:none; }
+  .tour-track::-webkit-scrollbar { display:none; }
+  .slide { flex:0 0 100%; scroll-snap-align:start; display:grid; grid-template-columns:1.15fr 1fr; gap:22px; align-items:center; padding:24px 24px 56px; box-sizing:border-box; }
+  .slide .kicker { display:inline-block; font-size:13px; font-weight:600; border-radius:999px; padding:3px 10px; margin-bottom:10px; border:1px solid; }
+  .slide h2 { margin:0 0 6px; }
+  .slide ul { margin:14px 0 0; padding-left:20px; color:var(--muted); }
+  .slide li { margin:6px 0; }
+  .slide .more { display:inline-block; margin-top:12px; font-weight:600; }
+  /* the tool's tile on the scale, at the panel's 480x320 proportions */
+  .tile { container-type:inline-size; position:relative; aspect-ratio:3/2; border-radius:14px; border:6px solid #262b35; overflow:hidden;
+    background:#0e1016; color:#fff; display:grid; place-items:center; text-align:center; }
+  .tile .glow { position:absolute; inset:0; }
+  .tile .in { position:relative; display:grid; justify-items:center; gap:3cqw; padding:0 8cqw; }
+  .tile .ic { width:22cqw; height:22cqw; border-radius:6cqw; display:grid; place-items:center; color:#fff; }
+  .tile .ic svg { width:12cqw; height:12cqw; }
+  .tile b { font-size:7cqw; line-height:1.1; }
+  .tile small { font-size:3.4cqw; color:rgba(255,255,255,.7); }
+  .tour-nav { position:absolute; left:0; right:0; bottom:14px; display:flex; align-items:center; justify-content:center; gap:10px; }
+  .tour-nav button.arr { width:34px; height:34px; border-radius:999px; border:1px solid var(--line); background:var(--panel-hi); color:var(--fg); cursor:pointer; }
+  .tour-nav button.arr:hover { border-color:var(--accent); }
+  .dots { display:flex; gap:7px; }
+  .dots button { width:9px; height:9px; padding:0; border-radius:999px; border:0; background:var(--line); cursor:pointer; }
+  .dots button[aria-current="true"] { width:22px; background:var(--accent); }
+  @media (max-width:760px) { .slide { grid-template-columns:1fr; padding:18px 18px 60px; } }
   ol.first { margin:12px 0 0; padding-left:22px; }
   ol.first li { margin:8px 0; color:var(--muted); }
   ol.first li b { color:var(--fg); }
@@ -267,7 +259,7 @@
       <p class="lede" data-t="hero_p"></p>
       <div class="cta">
         <a class="btn" href="#install" data-t="hero_btn"></a>
-        <a class="btn ghost" href="#presse" data-t="hero_presse"></a>
+        <a class="btn ghost" href="#apercu" data-t="hero_presse"></a>
         <a class="btn ghost" href="#tools" data-t="hero_tools"></a>
         <span class="ver" id="ver" hidden></span>
       </div>
@@ -283,34 +275,13 @@
       </div>
     </section>
 
-    <section id="presse">
-      <div class="spot">
-        <div>
-          <span class="kicker" data-t="pr_kick"></span>
-          <h2 data-t="pr_t"></h2>
-          <p class="sub" data-t="pr_p"></p>
-          <ul>
-            <li><b data-t="pr_l1b"></b> <span data-t="pr_l1"></span></li>
-            <li><b data-t="pr_l2b"></b> <span data-t="pr_l2"></span></li>
-            <li><b data-t="pr_l3b"></b> <span data-t="pr_l3"></span></li>
-            <li><b data-t="pr_l4b"></b> <span data-t="pr_l4"></span></li>
-          </ul>
-        </div>
-        <div class="shot">
-          <div class="screen" aria-hidden="true">
-            <div class="hd"><span class="bk">‹</span><span class="tt" data-t="pr_ex_item"></span></div>
-            <div class="ring">
-              <svg viewBox="0 0 188 188"><circle cx="94" cy="94" r="82" fill="rgba(0,0,0,.25)" stroke="rgba(255,255,255,.12)" stroke-width="12"/>
-                <circle cx="94" cy="94" r="82" fill="none" stroke="#4fd1ee" stroke-width="12" stroke-linecap="round" stroke-dasharray="515.2" stroke-dashoffset="309" transform="rotate(-90 94 94)"/></svg>
-              <div class="mid"><div><b>6</b><small data-t="pr_ex_sec"></small></div></div>
-            </div>
-            <div class="gl tc"><div class="k" data-t="pr_ex_temp"></div><div class="v">160<small>°C</small></div></div>
-            <div class="gl mi" style="left:45cqw"><div class="k" data-t="pr_ex_press"></div><div class="v" data-t="pr_ex_pressv"></div></div>
-            <div class="gl mi" style="left:72.3cqw"><div class="k" data-t="pr_ex_peel"></div><div class="v" data-t="pr_ex_peelv"></div></div>
-            <div class="nt" data-t="pr_ex_note"></div>
-            <div class="go" data-t="pr_ex_stop"></div>
-          </div>
-          <span class="soon-tag" data-t="pr_ex_soon"></span>
+    <section id="apercu">
+      <div class="tour" aria-roledescription="carousel">
+        <div class="tour-track" id="tour-track"></div>
+        <div class="tour-nav">
+          <button class="arr" type="button" id="tour-prev">‹</button>
+          <div class="dots" id="tour-dots"></div>
+          <button class="arr" type="button" id="tour-next">›</button>
         </div>
       </div>
     </section>
@@ -440,7 +411,8 @@
       hero_p: 'Un seul appareil dans l\'atelier, plusieurs outils sous la main. La balance TigerScale V3 garde la pesée des bobines et devient aussi mémo de presse à chaud, pèse-colis, lecteur TigerPOD… Tu tires le maximum du même matériel, et tu choisis les outils affichés, et leur ordre, avant même d\'installer.',
       hero_btn: 'Installer',
       hero_tools: 'Voir les outils',
-      hero_presse: 'Le mémo presse',
+      hero_presse: 'Le tour des outils',
+      tour_kick: 'Outil {n} sur {t}', tour_more: 'Comment ça marche ?', tour_prev: 'Outil précédent', tour_next: 'Outil suivant', tour_go: 'Aller à l\'outil',
       strip: '⚠ Version non officielle : ce firmware est un fork personnel, ni publié ni supporté par l\'équipe TigerTag.',
       strip_l: 'Lire l\'avertissement',
       badge: 'Fork non officiel',
@@ -486,17 +458,6 @@
       foot_2: 'Code source de ce fork :',
       foot_3: 'TigerTag et TigerScale sont des marques du TigerTag Project.',
       foot_copy: 'D\'après le firmware TigerScale V3, © 2026 TigerTag Project, sous licence MIT.',
-      pr_kick: 'L\'outil à l\'origine du projet',
-      pr_t: 'Le mémo presse à chaud',
-      pr_p: 'Ce firmware est né pour la presse à chaud : avoir les bons réglages de chaque support à portée de main, juste à côté de la presse, sans fiche papier ni téléphone.',
-      pr_l1b: 'Tes réglages par produit.', pr_l1: 'Température, temps, pression, pelage (chaud, tiède, froid) et une note, rangés par technique : sublimation, DTF, flex, flocage…',
-      pr_l2b: 'Un minuteur d\'un toucher.', pr_l2: 'Le compte à rebours part du temps du produit, avec des bips sur les dernières secondes.',
-      pr_l3b: 'Une alarme qu\'on ne rate pas.', pr_l3: 'À la fin, l\'écran entier clignote et sonne jusqu\'à ce qu\'on le touche, et rappelle le pelage.',
-      pr_l4b: 'Ta liste, à ta façon.', pr_l4: 'Elle se modifie depuis un navigateur, sur le réseau de l\'atelier. Une liste de départ est fournie.',
-      pr_ex_item: 'Coton', pr_ex_temp: 'Température', pr_ex_time: 'Temps', pr_ex_press: 'Pression', pr_ex_pressv: 'Forte',
-      pr_ex_peel: 'Pelage', pr_ex_peelv: 'Froid', pr_ex_stop: 'Arrêter',
-      pr_ex_sec: 'secondes', pr_ex_note: 'Repressage 10 s avec papier après pelage',
-      pr_ex_soon: 'Le nouvel écran du mémo presse, à venir',
       b_tested: 'Testé par l\'auteur sur la carte 3.5. La 3.5B n\'a pas encore été testée sur une vraie balance : si tu l\'essaies, ton retour est le bienvenu.',
       s5: 'Avant la première utilisation',
       s5_p: 'Deux réglages à faire une fois, sur la balance, avant de peser ou de lire des bobines :',
@@ -538,7 +499,8 @@
       hero_p: 'One device in the workshop, several tools at hand. The TigerScale V3 scale keeps spool weighing and also becomes a heat press memo, a parcel scale, a TigerPOD reader… You get the most out of the same hardware, and you choose which tools show, and in which order, before you even install.',
       hero_btn: 'Install',
       hero_tools: 'See the tools',
-      hero_presse: 'The heat press memo',
+      hero_presse: 'Tour of the tools',
+      tour_kick: 'Tool {n} of {t}', tour_more: 'How does it work?', tour_prev: 'Previous tool', tour_next: 'Next tool', tour_go: 'Go to tool',
       strip: '⚠ Unofficial version: this firmware is a personal fork, neither published nor supported by the TigerTag team.',
       strip_l: 'Read the warning',
       badge: 'Unofficial fork',
@@ -584,17 +546,6 @@
       foot_2: 'Source code of this fork:',
       foot_3: 'TigerTag and TigerScale are trademarks of the TigerTag Project.',
       foot_copy: 'Based on the TigerScale V3 firmware, © 2026 TigerTag Project, MIT licence.',
-      pr_kick: 'The tool this project started from',
-      pr_t: 'The heat press memo',
-      pr_p: 'This firmware was born for the heat press: the right settings for every blank within reach, right next to the press, with no paper sheet and no phone.',
-      pr_l1b: 'Your settings per product.', pr_l1: 'Temperature, time, pressure, peel (hot, warm, cold) and a note, sorted by technique: sublimation, DTF, HTV, flock…',
-      pr_l2b: 'A one-touch timer.', pr_l2: 'The countdown starts from the product\'s time, with beeps over the last seconds.',
-      pr_l3b: 'An alarm you cannot miss.', pr_l3: 'At the end the whole screen flashes and sounds until touched, and reminds you of the peel.',
-      pr_l4b: 'Your list, your way.', pr_l4: 'Edit it from a browser on the workshop network. A starter list is included.',
-      pr_ex_item: 'Cotton', pr_ex_temp: 'Temperature', pr_ex_time: 'Time', pr_ex_press: 'Pressure', pr_ex_pressv: 'Firm',
-      pr_ex_peel: 'Peel', pr_ex_peelv: 'Cold', pr_ex_stop: 'Stop',
-      pr_ex_sec: 'seconds', pr_ex_note: 'Press again 10 s with paper after peeling',
-      pr_ex_soon: 'The heat press memo\'s new screen, coming soon',
       b_tested: 'Tested by the author on the 3.5 board. The 3.5B has not been tested on a real scale yet: if you try it, your feedback is welcome.',
       s5: 'Before first use',
       s5_p: 'Two settings to make once, on the scale, before weighing or reading spools:',
@@ -777,6 +728,80 @@
       en: ['Select all', 'In the tile views, a button ticks every spool the filter shows.'] }
   ];
 
+  // Tiger Scale has no help card (it is the scale itself): its tour bullets.
+  const CORE_POINTS = {
+    fr: '• pose la bobine : la puce est lue toute seule\n• le poids net, sans la bobine vide\n• envoyé à ton inventaire TigerTag\n• deux lecteurs, réglables depuis Réglages → RFID',
+    en: '• put the spool on: the chip is read on its own\n• the net weight, without the empty spool\n• sent to your TigerTag inventory\n• two readers, tuned from Settings → RFID'
+  };
+  let tourAt = 0, tourTimer = null;
+  function drawTour() {
+    const track = document.getElementById('tour-track'), dots = document.getElementById('tour-dots');
+    track.textContent = ''; dots.textContent = '';
+    const n = window.TOOLS.length;
+    window.TOOLS.forEach((t, k) => {
+      const sl = document.createElement('div'); sl.className = 'slide';
+      sl.setAttribute('role', 'group'); sl.setAttribute('aria-roledescription', 'slide');
+      sl.setAttribute('aria-label', (k + 1) + ' / ' + n + ' : ' + t.name[lang]);
+      const tx = document.createElement('div');
+      const kick = document.createElement('span'); kick.className = 'kicker';
+      kick.textContent = tr('tour_kick').replace('{n}', k + 1).replace('{t}', n);
+      kick.style.color = t.color; kick.style.borderColor = t.color + '55'; kick.style.background = t.color + '18';
+      const h = document.createElement('h2'); h.textContent = t.name[lang];
+      const p = document.createElement('p'); p.className = 'sub'; p.textContent = t.desc[lang];
+      const ul = document.createElement('ul');
+      const pts = t.core ? CORE_POINTS[lang] : ((window.TOOL_HELP[t.id] || {})[lang] || [])[1] || '';
+      pts.split('\n').filter(Boolean).forEach(l => { const li = document.createElement('li'); li.textContent = l.replace(/^•\s*/, ''); ul.append(li); });
+      tx.append(kick, h, p, ul);
+      if (!t.core && window.TOOL_HELP[t.id]) {
+        const a = document.createElement('a'); a.className = 'more'; a.href = '#help-' + t.id; a.textContent = tr('tour_more') + ' →';
+        tx.append(a);
+      }
+      const tile = document.createElement('div'); tile.className = 'tile'; tile.setAttribute('aria-hidden', 'true');
+      tile.innerHTML = '<div class="glow"></div><div class="in"><div class="ic"></div><b></b><small></small></div>';
+      tile.querySelector('.glow').style.background = 'radial-gradient(circle at 50% 35%, ' + t.color + '55, transparent 65%)';
+      const ic = tile.querySelector('.ic'); ic.innerHTML = icon(t); ic.style.background = t.color;
+      tile.querySelector('b').textContent = t.name[lang];
+      tile.querySelector('small').textContent = 'Tiger Multi-tools';
+      sl.append(tx, tile); track.append(sl);
+      const d = document.createElement('button'); d.type = 'button';
+      d.setAttribute('aria-label', tr('tour_go') + ' ' + t.name[lang]);
+      d.onclick = () => { tourGo(k); tourStop(); };
+      dots.append(d);
+    });
+    document.getElementById('tour-prev').setAttribute('aria-label', tr('tour_prev'));
+    document.getElementById('tour-next').setAttribute('aria-label', tr('tour_next'));
+    tourMark(tourAt);
+    track.scrollLeft = tourAt * track.clientWidth;
+  }
+  function tourMark(k) {
+    tourAt = k;
+    document.querySelectorAll('#tour-dots button').forEach((d, i) => d.setAttribute('aria-current', String(i === k)));
+  }
+  function tourGo(k) {
+    const track = document.getElementById('tour-track'), n = window.TOOLS.length;
+    k = (k + n) % n;
+    track.scrollTo({ left: k * track.clientWidth });
+    tourMark(k);
+  }
+  function tourStop() { clearInterval(tourTimer); tourTimer = null; }
+  function tourStart() {
+    tourStop();
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    tourTimer = setInterval(() => tourGo(tourAt + 1), 30000);
+  }
+  (function wireTour() {
+    const track = document.getElementById('tour-track');
+    document.getElementById('tour-prev').onclick = () => { tourGo(tourAt - 1); tourStop(); };
+    document.getElementById('tour-next').onclick = () => { tourGo(tourAt + 1); tourStop(); };
+    let t;
+    track.addEventListener('scroll', () => { clearTimeout(t); t = setTimeout(() => tourMark(Math.round(track.scrollLeft / track.clientWidth)), 80); });
+    ['pointerdown', 'focusin'].forEach(e => track.parentNode.addEventListener(e, tourStop));
+    const box = track.parentNode;
+    box.addEventListener('mouseenter', tourStop);
+    box.addEventListener('mouseleave', () => { if (tourTimer === null) tourStart(); });
+    tourStart();
+  })();
+
   function drawStudio() {
     const box = document.getElementById('studio-has');
     box.textContent = '';
@@ -856,6 +881,7 @@
     paintTheme();
     drawCards();
     drawGuide();
+    drawTour();
     drawStudio();
     drawSoon();
     drawPicker();
