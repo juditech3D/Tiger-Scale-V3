@@ -15,34 +15,34 @@
 //
 //   TABLE OF CONTENTS                                     line range
 //   ---------------------------------------------------- -----------
-//   HARDWARE CONFIGURATION                                 259-  452
-//   OTA CONFIGURATION                                      453-  485
-//   FORWARD DECLARATIONS                                   486-  790
-//   WEIGHT ROUNDING                                        791-  823
-//   GLOBAL OBJECTS                                         824- 1749
-//   CONFIGURATION VARIABLES                               1750- 2179
-//   OLED DISPLAY                                          2180- 2957
-//   CLOUD PARSING                                         2958- 2972
-//   WIFI SETUP                                            2973- 8079
-//   LITTLEFS                                              8080- 8379
-//   FIREBASE AUTHENTICATION                               8380-10062
-//   WEBSOCKET                                            10063-10089
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 10090-10224
-//   UNIFIED WS FRAME BUILDER                             10225-10349
-//   WEIGHT FILTER HELPERS                                10350-10364
-//   POST-SEND STATE RESET (shared by all send paths)     10365-10385
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 10386-10489
-//   WEB SERVER                                           10490-11518
-//   CLOUD COMMUNICATION                                  11519-11701
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 11702-12209
-//   mDNS                                                 12210-12247
-//   SCALE                                                12248-12418
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  12419-12536
-//   RFID                                                 12537-13619
-//   OTA — Over-the-air firmware + filesystem update    13620-14299
-//   LVGL bridge + main weigh screen                      14300-15239
-//   Remote live view: the screen out, taps back in       15240-16089
-//   SETUP & LOOP                                         16090-17335
+//   HARDWARE CONFIGURATION                                 262-  455
+//   OTA CONFIGURATION                                      456-  488
+//   FORWARD DECLARATIONS                                   489-  796
+//   WEIGHT ROUNDING                                        797-  829
+//   GLOBAL OBJECTS                                         830- 1778
+//   CONFIGURATION VARIABLES                               1779- 2216
+//   OLED DISPLAY                                          2217- 3000
+//   CLOUD PARSING                                         3001- 3015
+//   WIFI SETUP                                            3016- 8722
+//   LITTLEFS                                              8723- 9022
+//   FIREBASE AUTHENTICATION                               9023-10705
+//   WEBSOCKET                                            10706-10732
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 10733-10872
+//   UNIFIED WS FRAME BUILDER                             10873-10997
+//   WEIGHT FILTER HELPERS                                10998-11012
+//   POST-SEND STATE RESET (shared by all send paths)     11013-11033
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 11034-11137
+//   WEB SERVER                                           11138-12171
+//   CLOUD COMMUNICATION                                  12172-12354
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 12355-12862
+//   mDNS                                                 12863-12900
+//   SCALE                                                12901-13071
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  13072-13189
+//   RFID                                                 13190-14272
+//   OTA — Over-the-air firmware + filesystem update    14273-14952
+//   LVGL bridge + main weigh screen                      14953-15892
+//   Remote live view: the screen out, taps back in       15893-16751
+//   SETUP & LOOP                                         16752-18020
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -112,6 +112,9 @@ struct MetadataCache { String mfr; String mat; String col; uint32_t productId; }
 #include "i18n.h"                 // translation table — edit i18n.h to add/change strings
 #include "live_page.h"            // the live view's browser page — see §LIVE
 #include "screen_page.h"          // the /screen page — same reason it is a header
+#include "pod_reader.h"           // TigerPOD mode: one reader as Studio sees it
+#include <mutex>                  // TigerPOD mode: its socket queue
+#include <deque>
 
 // Declared immediately after the includes on purpose: the .ino preprocessor
 // inserts every generated function prototype right here, so a type used in a
@@ -553,6 +556,9 @@ static void drawCalibrateIcon(int16_t cx, int16_t cy, int16_t r, uint16_t color,
 static void drawLanguageIcon(int16_t cx, int16_t cy, uint16_t color, uint16_t bg);
 static void runFirebaseAccountMenu();
 static void runHardwareTest();
+static void playNote(int freqHz, int durationMs);   // §AUDIO
+static void startWebServerNow();                    // §19
+static void cloudScheduleTick();                    // §SETUP & LOOP, also run by the TigerPOD mode
 // RF self-test, defined in §24 next to the reader init it has to undo.
 // (the RF self-test and its rfidFieldTest() were removed: never passed on
 // the bench, see docs/reviews/2026-08-08-ui-ux-tactile.md)
@@ -1459,6 +1465,13 @@ public:
         return true;
     }
 
+    // One NTAG page (4 bytes, WRITE 0xA2) on the card selected by the last
+    // isNewCardPresent(). Only the TigerPOD mode writes, for Tiger Studio.
+    bool writePage(uint8_t page, const uint8_t *data4) {
+        uint8_t d[4]; memcpy(d, data4, 4);
+        return _pn532.ntag2xx_WritePage(page, d) != 0;
+    }
+
 private:
     Adafruit_PN532 _pn532;
     HardwareSerial &_serial;
@@ -1596,6 +1609,14 @@ public:
         return true;
     }
 
+    // One NTAG page (4 bytes, WRITE 0xA2) on the card selected by the last
+    // isNewCardPresent(). Only the TigerPOD mode writes, for Tiger Studio.
+    bool writePage(uint8_t page, const uint8_t *data4) {
+        if (!_isPrimary) return false;
+        uint8_t d[4]; memcpy(d, data4, 4);
+        return _pn532.ntag2xx_WritePage(page, d) != 0;
+    }
+
 private:
     Adafruit_PN532 _pn532;
     bool _isPrimary;
@@ -1728,6 +1749,13 @@ public:
         return true;
     }
 
+    // One NTAG page (4 bytes, WRITE 0xA2) on the card selected by the last
+    // isNewCardPresent(). Only the TigerPOD mode writes, for Tiger Studio.
+    bool writePage(uint8_t page, const uint8_t *data4) {
+        uint8_t d[4]; memcpy(d, data4, 4);
+        return _pn532.ntag2xx_WritePage(page, d) != 0;
+    }
+
 private:
     Adafruit_PN532 _pn532;
     uint8_t _ssPin;
@@ -1742,6 +1770,7 @@ PN532Reader rfid2(PN532_2_SS);
 Servo spoolServo;
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
+AsyncWebSocket podWs("/pod");   // TigerPOD mode: Tiger Studio drives the readers
 Preferences prefs;
 bool gDisplayReady = false;
 static bool gUseLvglMainScreen = true;  // LVGL main-screen migration (2026-07-28); flip to false to revert to raw gfx drawing
@@ -2175,6 +2204,14 @@ OledState currentOledState    = OLED_STATE_IDLE;
 uint32_t  oledStateChangeMs   = 0;
 const uint32_t OLED_MESSAGE_DURATION_MS = 2000;
 static uint32_t gLastActivityMs          = 0; // reset on touch/RFID; drives 5-min screensaver
+// Set by GET /wake on the live port (Studio's Wake button). Lights a dark
+// screen and presses nothing: unlike an injected tap, it cannot land on a
+// button when the screen turns out to be on already. Cleared on every sleep
+// and wake, so a stale request never cuts the next sleep short.
+static volatile bool gRemoteWakeRequested = false;
+// Settings -> Mode: true = the readers are lent to Tiger Studio (TigerPOD
+// mode, runTigerPodMode()) instead of weighing. Kept in NVS as "podMode".
+static bool gPodMode = false;
 
 // ============================================================================
 // §7 — OLED DISPLAY
@@ -2238,6 +2275,7 @@ static void runScreensaver() {
     gScreenOff = true;
     if (WiFi.isConnected()) { gLastHeartbeatScheduleMs = millis(); gHeartbeatForce = true; gHeartbeatPending = true; }
     { int16_t tx, ty; while (tsRead(tx, ty)) delay(10); } // drain any lingering touch
+    gRemoteWakeRequested = false;
 
     gfx->fillScreen(0x0000);
     gfx->flush();
@@ -2251,6 +2289,10 @@ static void runScreensaver() {
               Serial.println("[SS] wake: touch"); break; } }
         if (fabs(readWeight() - sleepW) > SS_WAKE_DELTA_G) {
             Serial.println("[SS] wake: weight change");
+            break;
+        }
+        if (gRemoteWakeRequested) {
+            Serial.println("[SS] wake: remote");
             break;
         }
 
@@ -2276,6 +2318,7 @@ static void runScreensaver() {
         delay(30);
     }
     gScreenOff = false;
+    gRemoteWakeRequested = false;
     if (WiFi.isConnected()) { gLastHeartbeatScheduleMs = millis(); gHeartbeatForce = true; gHeartbeatPending = true; }
     applyBrightness(gBrightness);
     Serial.println("[SS] Screen wake");
@@ -7436,13 +7479,603 @@ static void runOtaMenu() {
     ESP.restart();
 }
 
+// TigerPOD mode: the scale's two readers lent to Tiger Studio, the way a
+// TigerPOD (a USB NFC reader on the computer) is. Studio already does
+// everything a TigerPOD is for -- open the spool of a chip put down, write a
+// blank chip, turn a TigerTag into a TigerTag+, restore, erase -- through a
+// handful of messages to its reader process (services/nfc-process.js in
+// Studio). This mode speaks those same messages over a WebSocket, so Studio can
+// treat each reader of the scale as one more reader and none of its features
+// change.
+//
+//   ws://<scale>/pod?c=<LAN access code>
+//   scale  -> Studio  {"type":"reader-connected","reader":"1"}
+//                     {"type":"card","reader":"1","uid":"04A1..","atr":"3b8f..",
+//                      "rawPagesHex":"<pages 4-39>"|null}
+//                     {"type":"card-removed","reader":"1"}
+//                     {"type":"read-result","id":7,"ok":true,"rawPagesHex":".."}
+//                     {"type":"write-result","id":8,"ok":true,"pagesWritten":12,
+//                      "verified":true,"mismatchPages":[]}
+//   Studio -> scale   {"type":"read-now","reader":"1","id":7,"start":4,"length":144}
+//                     {"type":"write-now","reader":"1","id":8,"verify":true,
+//                      "pages":[{"index":4,"hexData":"01020304"},..]}
+//
+// Only NTAG / Ultralight pages are read. A MIFARE Classic chip is announced
+// with its UID and no pages, as a USB reader that cannot read it would.
+//
+// Who may write a chip: someone with the LAN access code (the same code the
+// live view takes, published only to the account the scale is linked to), and
+// only while this mode is on the scale's own screen. Off, the socket refuses
+// every handshake and drops the clients it had. Pages 0-3 (UID, lock bits,
+// capability container) are never written: the lock bits are one-way, and
+// Studio has no reason to touch them.
+//
+// The socket's handler runs on the async server's task and never touches a
+// reader: it queues the text, and this mode's own loop -- the only code driving
+// the PN532s while it is up, since loop() is blocked behind it -- does the work
+// and answers. The weigh workflow's RFID polling is paused meanwhile.
+//
+// Settings -> Mode picks it, and the choice is kept in NVS ("podMode"), so a
+// scale used as a reader comes back as one after a restart. The header's back
+// arrow is the way out: it returns to the weigh screen and to Balance mode.
+
+#define POD_MAX_MSG    16384
+#define POD_POLL_MS    150      // one reader polled per tick, alternating
+#define POD_GONE_MISSES 3       // polls in a row without the chip = removed
+
+static volatile bool gPodOpen = false;
+static std::mutex gPodLock;
+struct PodInMsg { uint32_t client; String text; };
+static std::deque<PodInMsg> gPodInbox;              // guarded by gPodLock
+static std::map<uint32_t, String> gPodPartial;      // guarded by gPodLock
+
+static bool podHandshake(AsyncWebServerRequest *request) {
+    if (!gPodOpen || gLanAccessCode.length() != 6) return false;
+    const AsyncWebParameter *c = request->getParam("c");
+    return c && c->value() == gLanAccessCode;
+}
+
+static void onPodWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
+                         AwsEventType type, void *arg, uint8_t *data, size_t len) {
+    (void)server;
+    std::lock_guard<std::mutex> guard(gPodLock);
+    if (type == WS_EVT_CONNECT) {
+        gPodInbox.push_back({ client->id(), String("{\"type\":\"hello\"}") });
+        return;
+    }
+    if (type == WS_EVT_DISCONNECT) { gPodPartial.erase(client->id()); return; }
+    if (type != WS_EVT_DATA) return;
+    // A message can come in several TCP-sized pieces: put it back together.
+    AwsFrameInfo *info = (AwsFrameInfo *)arg;
+    if (info->opcode != WS_TEXT || info->len > POD_MAX_MSG) return;
+    String &buf = gPodPartial[client->id()];
+    if (info->index == 0) { buf = ""; buf.reserve(info->len); }
+    buf.concat((const char *)data, len);
+    if (info->final && info->index + len == info->len) {
+        if (gPodInbox.size() < 16) gPodInbox.push_back({ client->id(), buf });
+        buf = "";
+    }
+}
+
+// PodReader (one reader as Studio sees it) is in pod_reader.h: the .ino
+// converter puts prototypes taking it above every line of this file.
+
+static String podHex(const uint8_t *b, size_t n) {
+    static const char H[] = "0123456789abcdef";
+    String s; s.reserve(n * 2);
+    for (size_t i = 0; i < n; i++) { s += H[b[i] >> 4]; s += H[b[i] & 15]; }
+    return s;
+}
+
+static int podNib(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+// The PC/SC ATR an ACR122U reports, which Studio reads the chip family from:
+// a 7-byte UID is an NTAG / Ultralight, a 4-byte one a MIFARE Classic 1K.
+static const char *podAtr(uint8_t uidLen) {
+    return uidLen == 7 ? "3b8f8001804f0ca0000003060300030000000068"
+                       : "3b8f8001804f0ca000000306030001000000006a";
+}
+
+// Selects the chip again (a poll of the other reader may have come between)
+// and checks it is still the one Studio was told about.
+static bool podSelect(PodReader &p) {
+    for (int attempt = 0; attempt < 3; attempt++) {
+        if (p.r->isNewCardPresent() && p.r->readCardSerial()
+            && p.r->uid.size == p.uidLen && memcmp(p.r->uid.uidByte, p.uid, p.uidLen) == 0) return true;
+        delay(20);
+    }
+    return false;
+}
+
+// `length` bytes from `startPage`, read 16 bytes (4 pages) at a time.
+static bool podReadPages(PodReader &p, uint8_t startPage, size_t length, uint8_t *out) {
+    uint8_t blk[16];
+    for (size_t off = 0; off < length; off += 16) {
+        bool ok = false;
+        for (int attempt = 0; attempt < 3 && !ok; attempt++) {
+            ok = p.r->readPages16((uint8_t)(startPage + off / 4), blk);
+            if (!ok) delay(attempt ? 40 : 10);
+        }
+        if (!ok) return false;
+        memcpy(out + off, blk, min((size_t)16, length - off));
+    }
+    return true;
+}
+
+// Screen sleep while the mode is up. loop() owns the weigh screen's sleep
+// (runScreensaver), but it is blocked behind this mode, and unlike
+// runScreensaver() this cannot park the caller: Studio still has to be
+// answered with the backlight off. Same setting, same delay, same countdown
+// (gLastActivityMs, bumped by every touch in tsRead). A black, clickable panel
+// on the top layer hides the screen and takes the wake tap, so that tap cannot
+// press whatever is under the finger; it wakes on the lift, not the press,
+// because a press still held when the panel goes would land on the button
+// below. A chip put down and Studio's /wake light it too.
+static lv_obj_t *gPodSleepPanel = nullptr;
+static volatile bool gPodSleepTapped = false;
+
+static void podSleepPanelCb(lv_event_t *e) {
+    (void)e;
+    gPodSleepTapped = true;       // deleted from podSleepTick, not from its own event
+}
+
+static void podWake() {
+    gLastActivityMs = millis();
+    if (gPodSleepPanel == nullptr) return;
+    lv_obj_del(gPodSleepPanel);
+    gPodSleepPanel = nullptr;
+    gPodSleepTapped = false;
+    gScreenOff = false;
+    gRemoteWakeRequested = false;
+    if (WiFi.isConnected()) { gLastHeartbeatScheduleMs = millis(); gHeartbeatForce = true; gHeartbeatPending = true; }
+    lv_timer_handler();           // repaint under the panel before the light comes back
+    applyBrightness(gBrightness);
+    Serial.println("[SS] TigerPOD screen wake");
+}
+
+static void podSleepTick() {
+    if (gPodSleepPanel != nullptr) {
+        if (gPodSleepTapped || gRemoteWakeRequested) podWake();
+        return;
+    }
+    if (!gSleepEnabled || !gDisplayReady) return;
+    if (millis() - gLastActivityMs <= (uint32_t)gSleepDelayMin * 60000UL) return;
+    { int16_t tx, ty; if (tsRead(tx, ty)) return; }          // a finger is down: not idle
+
+    Serial.println("[SS] TigerPOD screen sleep: backlight off");
+    gPodSleepPanel = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(gPodSleepPanel);
+    lv_obj_set_size(gPodSleepPanel, 480, 320);
+    lv_obj_set_pos(gPodSleepPanel, 0, 0);
+    lv_obj_set_style_bg_color(gPodSleepPanel, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(gPodSleepPanel, LV_OPA_COVER, 0);
+    lv_obj_add_flag(gPodSleepPanel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(gPodSleepPanel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(gPodSleepPanel, podSleepPanelCb, LV_EVENT_RELEASED, nullptr);
+    gPodSleepTapped = false;
+    gRemoteWakeRequested = false;
+    ledcWrite(LCD_BL, 0);
+    lv_timer_handler();
+    gScreenOff = true;
+    if (WiFi.isConnected()) { gLastHeartbeatScheduleMs = millis(); gHeartbeatForce = true; gHeartbeatPending = true; }
+}
+
+static void podModeSave(bool on) {
+    gPodMode = on;
+    prefs.begin("config", false); prefs.putBool("podMode", on); prefs.end();
+}
+
+// Blocks until the owner leaves it with the header's back arrow, then loads
+// the weigh screen. Never called from an LVGL callback: it pumps its own
+// lv_timer_handler(), like every other screen of this file.
+static void runTigerPodMode() {
+    enum { POD_NONE, POD_BACK };
+    static int sAct;
+    auto cb = [](lv_event_t *e) { sAct = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e)); };
+    sAct = POD_NONE;
+
+    // Studio reaches the socket through the async server: start it now if
+    // loop() has not got to it yet.
+    if (ENABLE_HTTP_SERVER && gWebServerStartPending && !gWebServerStarted && !gWebServerStarting) {
+        gWebServerStarting = true;
+        startWebServerNow();
+    }
+
+    PodReader readers[2] = {
+        { &rfid1, "1", false, {0}, 0, 0, "" },
+        { &rfid2, "2", false, {0}, 0, 0, "" },
+    };
+
+    lv_obj_t *scr = lv_obj_create(nullptr);
+    lv_obj_set_style_bg_color(scr, LVCOL_BG, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    const char *podName = "TigerPOD";            // the product's name, not UI text
+    lvglAddHeader(scr, podName, cb, nullptr, (intptr_t)POD_BACK);
+
+    // Studio's state, a big dot and a line.
+    lv_obj_t *status = lv_label_create(scr);
+    lv_obj_set_style_text_font(status, &gFont20, 0);
+    lv_obj_set_width(status, 460);
+    lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(status, 10, 62);
+
+    // One card per reader, side by side.
+    lv_obj_t *uidLbl[2], *card[2];
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t *c = lv_obj_create(scr);
+        lv_obj_remove_style_all(c);
+        lv_obj_set_size(c, 225, 120);
+        lv_obj_set_pos(c, 10 + i * 235, 100);
+        lv_obj_set_style_bg_color(c, LVCOL_CARD, 0);
+        lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(c, LVCOL_BORDER, 0);
+        lv_obj_set_style_border_width(c, 2, 0);
+        lv_obj_set_style_radius(c, 12, 0);
+        lv_obj_clear_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t *title = lv_label_create(c);
+        String tl = String(t(I18N_POD_READER)) + " " + readers[i].id;
+        lv_label_set_text(title, tl.c_str());
+        lv_obj_set_style_text_color(title, LVCOL_MUTED, 0);
+        lv_obj_set_style_text_font(title, &gFont16, 0);
+        lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 12);
+        lv_obj_t *ic = lv_label_create(c);
+        lv_label_set_text(ic, LV_SYMBOL_WIFI);
+        lv_obj_set_style_text_color(ic, LVCOL_MUTED, 0);
+        lv_obj_set_style_text_font(ic, &lv_font_montserrat_28, 0);
+        lv_obj_align(ic, LV_ALIGN_CENTER, 0, -2);
+        uidLbl[i] = lv_label_create(c);
+        lv_obj_set_style_text_font(uidLbl[i], &gFont16, 0);
+        lv_obj_set_width(uidLbl[i], 205);
+        lv_obj_set_style_text_align(uidLbl[i], LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_align(uidLbl[i], LV_ALIGN_BOTTOM_MID, 0, -12);
+        card[i] = c;
+    }
+
+    // The last thing Studio asked for, and how it went.
+    lv_obj_t *lastOp = lv_label_create(scr);
+    lv_obj_set_style_text_font(lastOp, &gFont16, 0);
+    lv_obj_set_width(lastOp, 460);
+    lv_obj_set_style_text_align(lastOp, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(lastOp, 10, 232);
+    lv_label_set_text(lastOp, "");
+
+    lv_obj_t *hint = lv_label_create(scr);
+    lv_obj_set_style_text_font(hint, &gFont14, 0);
+    lv_obj_set_style_text_color(hint, LVCOL_MUTED, 0);
+    lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(hint, 460);
+    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(hint, 10, 266);
+
+    auto showReader = [&](int i) {
+        PodReader &p = readers[i];
+        if (p.present) {
+            String u = podHex(p.uid, p.uidLen); u.toUpperCase();
+            lv_label_set_text(uidLbl[i], u.c_str());
+            lv_obj_set_style_text_color(uidLbl[i], LVCOL_TEXT, 0);
+            lv_obj_set_style_border_color(card[i], LVCOL_ACCENT, 0);
+        } else {
+            lv_label_set_text(uidLbl[i], t(I18N_POD_NO_CHIP));
+            lv_obj_set_style_text_color(uidLbl[i], LVCOL_MUTED, 0);
+            lv_obj_set_style_border_color(card[i], LVCOL_BORDER, 0);
+        }
+    };
+    auto setOp = [&](const char *what, bool ok, const char *reader) {
+        String s = String(ok ? LV_SYMBOL_OK " " : LV_SYMBOL_CLOSE " ") + what + "  -  "
+                 + t(I18N_POD_READER) + " " + reader;
+        lv_label_set_text(lastOp, s.c_str());
+        lv_obj_set_style_text_color(lastOp, ok ? LVCOL_GREEN : LVCOL_RED, 0);
+    };
+    size_t shownClients = (size_t)-1;
+    bool shownWifi = false;
+    auto showStatus = [&]() {
+        size_t n = podWs.count();
+        bool wifi = WiFi.isConnected();
+        if (n == shownClients && wifi == shownWifi) return;
+        shownClients = n;
+        shownWifi = wifi;
+        if (n) {
+            String s = String(LV_SYMBOL_OK "  ") + t(I18N_POD_CONNECTED);
+            lv_label_set_text(status, s.c_str());
+            lv_obj_set_style_text_color(status, LVCOL_GREEN, 0);
+            lv_label_set_text(hint, "");
+        } else {
+            String s = String(LV_SYMBOL_REFRESH "  ") + t(I18N_POD_WAITING);
+            lv_label_set_text(status, s.c_str());
+            lv_obj_set_style_text_color(status, LVCOL_YELLOW, 0);
+            lv_label_set_text(hint, t(wifi ? I18N_POD_HINT : I18N_NO_WIFI));
+        }
+    };
+    for (int i = 0; i < 2; i++) showReader(i);
+    showStatus();
+
+    // One carrier up at a time: the two antennas face each other 75 mm apart,
+    // and a field that is up is heard by the other reader (see setRfField()).
+    // A chip needs a few milliseconds of field before it answers.
+    int fieldOn = -1;
+    auto podField = [&](int i) {
+        if (fieldOn == i) return;
+        readers[1 - i].r->antennaOff();
+        readers[i].r->antennaOn();
+        fieldOn = i;
+        delay(6);
+    };
+
+    // The JSON of a chip event, sent to every client or to one.
+    auto cardMsg = [&](PodReader &p) -> String {
+        String m = String("{\"type\":\"card\",\"reader\":\"") + p.id + "\",\"uid\":\""
+                 + podHex(p.uid, p.uidLen) + "\",\"atr\":\"" + podAtr(p.uidLen) + "\",\"rawPagesHex\":";
+        m += p.pagesHex.length() ? "\"" + p.pagesHex + "\"" : String("null");
+        return m + "}";
+    };
+
+    gPodOpen = true;
+    lv_scr_load(scr);
+    { int16_t dx, dy; uint32_t t0 = millis(); while (tsRead(dx, dy) && millis() - t0 < 800) delay(20); }
+    gLastActivityMs = millis();
+
+    uint32_t lastPoll = 0;
+    int pollIdx = 0;
+    while (sAct != POD_BACK) {
+        lv_timer_handler(); delay(5);
+        // loop() is blocked behind this screen, and it is where the heartbeat,
+        // the token renewal and the command poll are scheduled. Without them
+        // Studio would count a scale left in this mode as offline, and could
+        // neither find its readers nor wake it.
+        pollBatteryState();
+        if (gBattery.vbusChanged) {
+            gBattery.vbusChanged = false;
+            if (WiFi.isConnected()) { gLastHeartbeatScheduleMs = millis(); gHeartbeatForce = true; gHeartbeatPending = true; }
+        }
+        cloudScheduleTick();
+        podSleepTick();
+        showStatus();
+
+        // Studio's requests, one at a time.
+        PodInMsg in; bool have = false;
+        {
+            std::lock_guard<std::mutex> guard(gPodLock);
+            if (!gPodInbox.empty()) { in = gPodInbox.front(); gPodInbox.pop_front(); have = true; }
+        }
+        if (have) {
+            DynamicJsonDocument doc(POD_MAX_MSG * 2);
+            if (deserializeJson(doc, (const char *)in.text.c_str())) continue;
+            const char *type = doc["type"] | "";
+            if (!strcmp(type, "hello")) {
+                for (auto &p : readers) {
+                    podWs.text(in.client, String("{\"type\":\"reader-connected\",\"reader\":\"") + p.id + "\"}");
+                    if (p.present) podWs.text(in.client, cardMsg(p));
+                }
+                continue;
+            }
+            const char *rid = doc["reader"] | "";
+            long id = doc["id"] | 0L;
+            PodReader *p = !strcmp(rid, "1") ? &readers[0] : !strcmp(rid, "2") ? &readers[1] : nullptr;
+            bool isRead = !strcmp(type, "read-now"), isWrite = !strcmp(type, "write-now");
+            if (!isRead && !isWrite) continue;
+            const char *resType = isRead ? "read-result" : "write-result";
+            auto fail = [&](const char *err) {
+                podWs.text(in.client, String("{\"type\":\"") + resType + "\",\"id\":" + id
+                                      + ",\"ok\":false,\"error\":\"" + err + "\"}");
+                if (p) setOp(t(I18N_POD_FAILED), false, p->id);
+            };
+            if (!p)               { fail("Reader not connected"); continue; }
+            if (!p->present)      { fail("No card present"); continue; }
+            podField(p - readers);
+            if (!podSelect(*p))   { fail("Card moved"); continue; }
+
+            if (isRead) {
+                int start = doc["start"] | 4;
+                int length = doc["length"] | 144;
+                if (start < 0 || start > 255 || length <= 0 || length > 1024) { fail("Bad range"); continue; }
+                uint8_t *buf = (uint8_t *)heap_caps_malloc(length, MALLOC_CAP_SPIRAM);
+                if (!buf) buf = (uint8_t *)malloc(length);
+                if (!buf) { fail("Out of memory"); continue; }
+                bool ok = podReadPages(*p, (uint8_t)start, length, buf);
+                if (ok) podWs.text(in.client, String("{\"type\":\"read-result\",\"id\":") + id
+                                             + ",\"ok\":true,\"rawPagesHex\":\"" + podHex(buf, length) + "\"}");
+                else fail("Read failed");
+                free(buf);
+                if (ok) setOp(t(I18N_POD_READ), true, p->id);
+                continue;
+            }
+
+            // write-now: every page checked before the first one is written.
+            JsonArray pages = doc["pages"].as<JsonArray>();
+            bool valid = !pages.isNull();
+            int maxPage = 0;
+            for (JsonObject pg : pages) {
+                int idx = pg["index"] | -1;
+                const char *hx = pg["hexData"] | "";
+                if (idx < 4 || idx > 225 || strlen(hx) != 8) { valid = false; break; }
+                for (int k = 0; k < 8; k++) if (podNib(hx[k]) < 0) valid = false;
+                if (idx > maxPage) maxPage = idx;
+            }
+            if (!valid) { fail("Bad pages"); continue; }
+            int written = 0; bool ok = true; int failedAt = -1;
+            for (JsonObject pg : pages) {
+                const char *hx = pg["hexData"];
+                uint8_t d[4];
+                for (int k = 0; k < 4; k++) d[k] = (uint8_t)(podNib(hx[2 * k]) << 4 | podNib(hx[2 * k + 1]));
+                bool w = p->r->writePage((uint8_t)(int)pg["index"], d);
+                if (!w) { delay(20); w = p->r->writePage((uint8_t)(int)pg["index"], d); }
+                if (!w) { ok = false; failedAt = pg["index"]; break; }
+                written++;
+            }
+            if (!ok) {
+                char e[48]; snprintf(e, sizeof e, "Write failed at page %d", failedAt);
+                fail(e); continue;
+            }
+            // Read back what was written, the way Studio's own reader process does.
+            String verified = "null", mismatch = "[]";
+            if (doc["verify"] | false) {
+                size_t length = max((size_t)144, (size_t)(maxPage - 4 + 1) * 4);
+                length = (length + 15) & ~(size_t)15;
+                uint8_t *back = (uint8_t *)heap_caps_malloc(length, MALLOC_CAP_SPIRAM);
+                if (!back) back = (uint8_t *)malloc(length);
+                bool readOk = back && podReadPages(*p, 4, length, back);
+                bool allSame = readOk;
+                mismatch = "[";
+                if (!readOk) mismatch += "-1";
+                else for (JsonObject pg : pages) {
+                    int idx = pg["index"];
+                    const char *hx = pg["hexData"];
+                    String got = podHex(back + (idx - 4) * 4, 4);
+                    if (!got.equalsIgnoreCase(hx)) {
+                        if (!allSame) mismatch += ",";
+                        mismatch += String(idx);
+                        allSame = false;
+                    }
+                }
+                mismatch += "]";
+                if (back) free(back);
+                verified = allSame ? "true" : "false";
+            }
+            podWs.text(in.client, String("{\"type\":\"write-result\",\"id\":") + id + ",\"ok\":true,\"pagesWritten\":"
+                                  + written + ",\"verified\":" + verified + ",\"mismatchPages\":" + mismatch + "}");
+            setOp(t(I18N_POD_WRITTEN), verified != "false", p->id);
+            // The chip changed under Studio's eyes: send it again, as a reader
+            // would on the next touch.
+            uint8_t pg[144];
+            if (podReadPages(*p, 4, 144, pg)) p->pagesHex = podHex(pg, 144);
+            continue;
+        }
+
+        // A chip put down or taken away, one reader per tick.
+        if (millis() - lastPoll < POD_POLL_MS) continue;
+        lastPoll = millis();
+        PodReader &p = readers[pollIdx];
+        podField(pollIdx);
+        pollIdx ^= 1;
+        bool seen = p.r->isNewCardPresent() && p.r->readCardSerial();
+        bool same = seen && p.present && p.r->uid.size == p.uidLen
+                    && memcmp(p.r->uid.uidByte, p.uid, p.uidLen) == 0;
+        if (seen && !same) {
+            if (p.present) podWs.textAll(String("{\"type\":\"card-removed\",\"reader\":\"") + p.id + "\"}");
+            p.uidLen = min((uint8_t)10, p.r->uid.size);
+            memcpy(p.uid, p.r->uid.uidByte, p.uidLen);
+            p.present = true;
+            p.misses = 0;
+            p.pagesHex = "";
+            uint8_t pg[144];
+            // A MIFARE Classic answers no Ultralight READ: it goes out without
+            // pages, which is what tells Studio it is not a TigerTag.
+            if (p.uidLen == 7 && podReadPages(p, 4, 144, pg)) p.pagesHex = podHex(pg, 144);
+            podWs.textAll(cardMsg(p));
+            playNote(1760, 40);
+            showReader(&p - readers);
+            podWake();                   // a chip put down is someone at the scale
+        } else if (same) {
+            p.misses = 0;
+        } else if (p.present && ++p.misses >= POD_GONE_MISSES) {
+            p.present = false;
+            podWs.textAll(String("{\"type\":\"card-removed\",\"reader\":\"") + p.id + "\"}");
+            showReader(&p - readers);
+        }
+    }
+
+    // Left: no one may drive the readers any more, and the scale weighs again.
+    podWake();
+    gPodOpen = false;
+    podWs.closeAll(1001, "TigerPOD closed");
+    rfidAntennaSetAll(true);
+    {
+        std::lock_guard<std::mutex> guard(gPodLock);
+        gPodInbox.clear();
+        gPodPartial.clear();
+    }
+    podModeSave(false);
+    lv_scr_load(lvScreen);
+    lv_obj_del(scr);
+    { int16_t dx, dy; uint32_t t0 = millis(); while (tsRead(dx, dy) && millis() - t0 < 800) delay(20); }
+}
+
+// Settings -> Mode: the two ways this scale can be used, same row list as the
+// Language screen, the current one with the accent border and a check mark.
+// Returns true when TigerPOD was picked: the caller then runs it, since this
+// screen is a sub-screen of Settings and TigerPOD replaces the weigh screen.
+static bool runModeSettings() {
+    enum { MA_NONE, MA_SCALE, MA_POD, MA_BACK };
+    static int sAct;
+    auto cb = [](lv_event_t *e) { sAct = (int)(intptr_t)lv_obj_get_user_data((lv_obj_t *)lv_event_get_target(e)); };
+    sAct = MA_NONE;
+
+    lv_obj_t *scr = lv_obj_create(nullptr);
+    lv_obj_set_style_bg_color(scr, LVCOL_BG, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lvglAddHeader(scr, t(I18N_MODE), cb, nullptr, (intptr_t)MA_BACK);
+
+    lv_obj_t *list = lv_obj_create(scr);
+    lv_obj_remove_style_all(list);
+    lv_obj_set_size(list, 460, 320 - 49);
+    lv_obj_set_pos(list, 0, 49);
+    lv_obj_set_style_pad_all(list, 10, 0);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(list, 8, 0);
+    lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Product names, not UI text: the same in every language.
+    const char *names[2] = { "Tiger Scale", "TigerPOD" };
+    const LangKey subs[2] = { I18N_MODE_SCALE_SUB, I18N_MODE_POD_SUB };
+    for (int i = 0; i < 2; i++) {
+        bool sel = (i == 1) == gPodMode;
+        lv_obj_t *row = lv_btn_create(list);
+        lv_obj_set_size(row, LV_PCT(100), 72);
+        lv_obj_set_style_bg_color(row, LVCOL_CARD, 0);
+        lv_obj_set_style_border_color(row, sel ? LVCOL_ACCENT : LVCOL_BORDER, 0);
+        lv_obj_set_style_border_width(row, sel ? 2 : 1, 0);
+        lv_obj_set_style_radius(row, 10, 0);
+        lv_obj_set_style_shadow_width(row, 0, 0);
+        lv_obj_set_style_pad_all(row, 0, 0);
+        lv_obj_set_user_data(row, (void *)(intptr_t)(i ? MA_POD : MA_SCALE));
+        lv_obj_add_event_cb(row, cb, LV_EVENT_CLICKED, nullptr);
+
+        lv_obj_t *name = lv_label_create(row);
+        lv_label_set_text(name, names[i]);
+        lv_obj_set_style_text_color(name, LVCOL_TEXT, 0);
+        lv_obj_set_style_text_font(name, &gFont20, 0);
+        lv_obj_align(name, LV_ALIGN_TOP_LEFT, 16, 12);
+        lv_obj_t *sub = lv_label_create(row);
+        lv_label_set_text(sub, t(subs[i]));
+        lv_obj_set_style_text_color(sub, LVCOL_MUTED, 0);
+        lv_obj_set_style_text_font(sub, &gFont14, 0);
+        lv_obj_align(sub, LV_ALIGN_BOTTOM_LEFT, 16, -12);
+
+        if (sel) {
+            lv_obj_t *mark = lv_label_create(row);
+            lv_label_set_text(mark, LV_SYMBOL_OK);
+            lv_obj_set_style_text_color(mark, LVCOL_ACCENT, 0);
+            lv_obj_set_style_text_font(mark, &lv_font_montserrat_20, 0);
+            lv_obj_align(mark, LV_ALIGN_RIGHT_MID, -16, 0);
+        }
+    }
+
+    lv_obj_t *prev = lv_scr_act();
+    lv_scr_load(scr);
+    { int16_t dx, dy; uint32_t t0 = millis(); while (tsRead(dx, dy) && millis() - t0 < 800) delay(20); }
+    while (sAct == MA_NONE) { lv_timer_handler(); delay(5); }
+
+    if (sAct == MA_SCALE && gPodMode) podModeSave(false);
+    if (sAct == MA_POD) podModeSave(true);
+    lv_scr_load(prev);
+    lv_obj_del(scr);
+    return sAct == MA_POD;
+}
+
 // LVGL settings menu (2026-07-28) -- same actions/functions as the old
 // raw-gfx grid, same blocking call convention (callers just call
 // runSettingsMenu() and it returns once the user backs out), rebuilt as an
 // LVGL screen. Sub-screens (calibration wizard, hardware test, wifi setup,
 // etc.) are untouched raw-gfx and still called exactly as before.
 static void runSettingsMenu() {
-    enum SettingsAction { SA_NONE, SA_WIFI, SA_FIREBASE, SA_VOLUME, SA_SCREEN, SA_CALIBRATE, SA_LANGUAGE, SA_HARDWARE, SA_LAN, SA_UPDATE, SA_REBOOT, SA_POWEROFF, SA_FACTORY, SA_BACK };
+    enum SettingsAction { SA_NONE, SA_WIFI, SA_FIREBASE, SA_VOLUME, SA_SCREEN, SA_CALIBRATE, SA_LANGUAGE, SA_HARDWARE, SA_MODE, SA_LAN, SA_UPDATE, SA_REBOOT, SA_POWEROFF, SA_FACTORY, SA_BACK };
     static SettingsAction sAction;
     lv_obj_t *prevScr = nullptr;
     lv_coord_t savedScrollY = 0;   // survives sub-screen round-trips, not menu exits
@@ -7717,6 +8350,11 @@ static void runSettingsMenu() {
 
         makeRow(CI_CHIP, nullptr, LVCOL_TEXT, "RFID", String(""), SA_HARDWARE);
 
+        // Balance or TigerPOD: what the readers are for. The value is the
+        // product's name, the same in every language.
+        makeRow(CI_GLYPH, LV_SYMBOL_SHUFFLE, LVCOL_TEXT, t(I18N_MODE),
+                String(gPodMode ? "TigerPOD" : "Tiger Scale"), SA_MODE);
+
         // When the background check has already spotted a newer release,
         // this row says so from the list itself: orange refresh icon, and
         // the value spells the move ("3.3.0 > 3.3.1") instead of just the
@@ -7932,6 +8570,11 @@ static void runSettingsMenu() {
                 break;
             case SA_LANGUAGE:   runLanguageSettings();   break;
             case SA_HARDWARE:   runHardwareTest();       break;
+            case SA_MODE:
+                // TigerPOD replaces the weigh screen until it is left, and
+                // leaving it lands on the weigh screen, not back in this list.
+                if (runModeSettings()) { runTigerPodMode(); lv_obj_del(scr); goto settings_done; }
+                break;
             case SA_LAN:        runLanSettings();        break;
             case SA_UPDATE:     runOtaMenu();            break;
             case SA_REBOOT:
@@ -10153,6 +10796,11 @@ static void cloudWorkerTask(void* /*param*/) {
         }
         if (gHeartbeatPending) {
             gHeartbeatPending = false;
+            // The 30-min token tick lives in loop(), which the screensaver
+            // blocks: past an hour there the beat went out with an expired
+            // token and was refused, and Studio saw a sleeping scale as gone.
+            // A no-op while the token is fresh.
+            ensureFirebaseToken();
             sendScaleHeartbeat();
         }
         if (gOtaPollPending) {
@@ -10514,6 +11162,11 @@ void setupWebServer() {
 
     ws.onEvent(onWsEvent);
     server.addHandler(&ws);
+    // The TigerPOD mode's socket: refuses every handshake unless the mode is
+    // on the screen and the LAN access code is given.
+    podWs.handleHandshake(podHandshake);
+    podWs.onEvent(onPodWsEvent);
+    server.addHandler(&podWs);
 
     // Serve index.html(.gz), with a built-in fallback page when LittleFS has no UI files
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -15709,6 +16362,15 @@ static bool liveHandleRequest(int fd) {
         if (!liveCodeOk(query)) { liveSend(fd, LIVE_403, strlen(LIVE_403)); return true; }
         return liveAcceptViewer(fd);
     }
+    // Wake the screen without touching it. Dark: the sleep loop that owns it
+    // lights it. Already on: restart the sleep countdown, press nothing.
+    if (!strcmp(path, "/wake")) {
+        if (!liveCodeOk(query)) { liveSend(fd, LIVE_403, strlen(LIVE_403)); return true; }
+        if (gScreenOff) gRemoteWakeRequested = true;
+        else            gLastActivityMs = millis();
+        liveSend(fd, LIVE_204, strlen(LIVE_204));
+        return true;
+    }
     if (!strcmp(path, "/tap")) {
         char xs[8] = {0}, ys[8] = {0};
         if (!liveCodeOk(query)) { liveSend(fd, LIVE_403, strlen(LIVE_403)); return true; }
@@ -16144,6 +16806,7 @@ void setup() {
     hwRfidSide           = prefs.getUChar("hwRfidSide",    1);
     gRfidCountIsAuto     = prefs.getUChar("hwRfidAuto",    1) != 0;
     gRfidPowerLevel      = prefs.getUChar("rfidPower",     7);
+    gPodMode             = prefs.getBool("podMode",        false);
     if (gRfidPowerLevel >= PN532_RF_LEVEL_COUNT) gRfidPowerLevel = 7;
     hwMotorConnected     = prefs.getBool("hwMotorConn",    false);
     hwMotorSpeed         = prefs.getUChar("hwMotorSpd",    0);
@@ -16278,6 +16941,41 @@ void setup() {
     gBootComplete = true;
 }
 
+// The token renewal, the heartbeat and the command poll, as flags the cloud
+// worker acts on. loop() runs this on every pass; so does the TigerPOD mode,
+// which blocks loop() for as long as it is up.
+static void cloudScheduleTick() {
+    // Defer cloud/Firebase startup until the boot sequence is fully settled.
+    if (ENABLE_FIREBASE_BACKGROUND && millis() >= gFirebaseBootReadyAtMs) {
+        // Renew the idToken every 30 minutes in the background so it is never
+        // stale. ensureFirebaseToken() is a no-op if the token is still fresh.
+        static uint32_t lastTokenRenew = 0;
+        // Signed in: renew every 30 min. NOT signed in: retry every 30 s —
+        // one failed first attempt used to leave the account disconnected
+        // until the next half-hour tick.
+        if (WiFi.isConnected() && isFirebaseConfigured()
+            && (lastTokenRenew == 0
+                || (millis() - lastTokenRenew) > (firebaseAuth ? 1800000UL : 30000UL))) {
+            bool firstBoot = (lastTokenRenew == 0);
+            lastTokenRenew = millis();
+            gTokenRenewPending   = true;
+            if (firstBoot) gFirestoreSyncNeeded = true;
+        }
+
+        // Firestore heartbeat every 30 seconds.
+        if (WiFi.isConnected() && (millis() - gLastHeartbeatScheduleMs) >= heartbeatIntervalMs()) {
+            gLastHeartbeatScheduleMs = millis();
+            gHeartbeatPending = true;
+        }
+
+        // OTA poll at the same cadence gate as normal operation.
+        if ((millis() - gLastCommandPollMs) >= OTA_COMMAND_POLL_MS) {
+            gLastCommandPollMs = millis();
+            gOtaPollPending = true;
+        }
+    }
+}
+
 void loop() {
 #if LVGL_TEST_MODE
     // Isolated hardware smoke test: only pump the LVGL timer, skip all normal
@@ -16347,6 +17045,21 @@ void loop() {
         gSettingsRequested = false;
         runSettingsMenu();
         lv_obj_invalidate(lvScreen);
+    }
+    {
+        // A scale left in TigerPOD mode comes back in it after a restart, once
+        // the cloud worker and the live view are up (Studio finds the readers
+        // through them) and the readers have had their post-sign-in setup --
+        // or after a minute, for a scale with no account or no network.
+        static bool sPodBootDone = false;
+        if (gPodMode && !sPodBootDone && gBootComplete && !gFirstRunPending
+            && (gBackgroundTasksStarted || !ENABLE_BACKGROUND_TASKS)
+            && (gPostFirebaseStabilized || millis() > 60000UL)
+            && lvScreen != nullptr && lv_scr_act() == lvScreen) {
+            sPodBootDone = true;
+            runTigerPodMode();
+            lv_obj_invalidate(lvScreen);
+        }
     }
     static uint32_t lastUpdate = 0;
     static uint32_t lastBlink  = 0;
@@ -16471,35 +17184,7 @@ void loop() {
         gIdleHeartbeatMs = millis() + 15000;
     }
 
-    // Defer cloud/Firebase startup until the boot sequence is fully settled.
-    if (ENABLE_FIREBASE_BACKGROUND && millis() >= gFirebaseBootReadyAtMs) {
-        // Renew the idToken every 30 minutes in the background so it is never
-        // stale. ensureFirebaseToken() is a no-op if the token is still fresh.
-        static uint32_t lastTokenRenew = 0;
-        // Signed in: renew every 30 min. NOT signed in: retry every 30 s —
-        // one failed first attempt used to leave the account disconnected
-        // until the next half-hour tick.
-        if (WiFi.isConnected() && isFirebaseConfigured()
-            && (lastTokenRenew == 0
-                || (millis() - lastTokenRenew) > (firebaseAuth ? 1800000UL : 30000UL))) {
-            bool firstBoot = (lastTokenRenew == 0);
-            lastTokenRenew = millis();
-            gTokenRenewPending   = true;
-            if (firstBoot) gFirestoreSyncNeeded = true;
-        }
-
-        // Firestore heartbeat every 30 seconds.
-        if (WiFi.isConnected() && (millis() - gLastHeartbeatScheduleMs) >= heartbeatIntervalMs()) {
-            gLastHeartbeatScheduleMs = millis();
-            gHeartbeatPending = true;
-        }
-
-        // OTA poll at the same cadence gate as normal operation.
-        if ((millis() - gLastCommandPollMs) >= OTA_COMMAND_POLL_MS) {
-            gLastCommandPollMs = millis();
-            gOtaPollPending = true;
-        }
-    }
+    cloudScheduleTick();
 
     // Periodic TigerTag DB update check - every 24 h.
     // Same logic as the Python script: fetch last_update.json, download only
