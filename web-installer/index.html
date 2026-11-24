@@ -482,7 +482,7 @@
       soon_next: 'Prochaine version',
       soon_prep: 'En préparation',
       st_t: 'Déjà dans Tiger Studio Fork',
-      st_p: 'Le Tiger Studio du fork (version 2.59.2-fork.4, pour Windows et Linux) ajoute ces fonctions à l\'appli d\'origine. Comme le firmware, c\'est une version personnelle et non officielle.',
+      st_p: 'Le Tiger Studio du fork (version 2.61.0-fork.1, pour Windows, Linux et macOS) ajoute ces fonctions à l\'appli d\'origine. Comme le firmware, c\'est une version personnelle et non officielle.',
       st_btn: 'Télécharger Tiger Studio Fork',
       st_ok: 'Disponible',
       more_t: 'Et aussi sur la balance',
@@ -570,7 +570,7 @@
       soon_next: 'Next version',
       soon_prep: 'In preparation',
       st_t: 'Already in Tiger Studio Fork',
-      st_p: 'This fork\'s Tiger Studio (version 2.59.2-fork.4, for Windows and Linux) adds these features to the original app. Like the firmware, it is a personal, unofficial version.',
+      st_p: 'This fork\'s Tiger Studio (version 2.61.0-fork.1, for Windows, Linux and macOS) adds these features to the original app. Like the firmware, it is a personal, unofficial version.',
       st_btn: 'Download Tiger Studio Fork',
       st_ok: 'Available',
       more_t: 'Also on the scale',
@@ -702,14 +702,13 @@
       { fr: ['Réveil de l\'écran à distance', 'L\'écran de la balance se rallume depuis Tiger Studio Fork (bouton Réveiller), sans la toucher. Le bouton est déjà dans Studio, mais il faut ce prochain firmware pour qu\'il marche.'],
         en: ['Wake the screen remotely', 'The scale\'s screen turns back on from Tiger Studio Fork (Wake up button), without touching it. The button is already in Studio, but it needs this next firmware to work.'] }
     ],
-    studio: [
-      { fr: ['Version macOS', 'Le Tiger Studio du fork s\'installera aussi sur Mac (Apple Silicon et Intel).'],
-        en: ['macOS version', 'This fork\'s Tiger Studio will also install on a Mac (Apple Silicon and Intel).'] }
-    ]
+    studio: []
   };
 
   // What the fork's Tiger Studio already ships (published releases only).
   const STUDIO_HAS = [
+    { fr: ['Version macOS', 'Le Tiger Studio du fork s\'installe aussi sur Mac (puce Apple et Intel). Il n\'est pas signé par Apple : macOS demande une fois de l\'autoriser, les étapes sont sur la page de téléchargement.'],
+      en: ['macOS version', 'This fork\'s Tiger Studio also installs on a Mac (Apple chip and Intel). It is not signed by Apple: macOS asks once to allow it, the steps are on the download page.'] },
     { fr: ['La balance en lecteur TigerPOD', 'Avec l\'outil TigerPOD ouvert, les deux lecteurs de la balance apparaissent dans Studio comme des lecteurs RFID : ouvrir, écrire, restaurer ou effacer une puce.'],
       en: ['The scale as a TigerPOD reader', 'With the TigerPOD tool open, the scale\'s two readers show up in Studio as RFID readers: open, write, restore or erase a chip.'] },
     { fr: ['Puces Bambu Lab', 'Une puce Bambu Lab est lue (matière, couleur, poids, températures). La bobine n\'est ajoutée qu\'une fois ses deux puces lues, et Studio dit laquelle manque.'],
@@ -722,8 +721,8 @@
       en: ['Labels on A4 and in batches', 'Several labels per A4 sheet, the number of copies, or one label per ticked spool, in one go.'] },
     { fr: ['Valeurs choisies sur l\'étiquette', 'Un grand dessin de l\'étiquette : clique sur une ligne pour choisir ce qu\'elle affiche.'],
       en: ['Values chosen on the label', 'A large drawing of the label: click a line to choose what it shows.'] },
-    { fr: ['Caméras et plans', 'Afficher ou couper toutes les caméras d\'un coup. La molette fait défiler les plans, Ctrl + molette zoome.'],
-      en: ['Cameras and plans', 'Show or stop all cameras at once. The wheel scrolls the plans, Ctrl + wheel zooms.'] },
+    { fr: ['Caméras et plans', 'Afficher ou couper toutes les caméras d\'un coup, ou une par une. Le mur des caméras s\'ouvre dans sa propre fenêtre. La molette fait défiler les plans, Ctrl + molette zoome.'],
+      en: ['Cameras and plans', 'Show or stop all cameras at once, or one by one. The camera wall opens in its own window. The wheel scrolls the plans, Ctrl + wheel zooms.'] },
     { fr: ['Tout sélectionner', 'Dans les vues en tuiles, un bouton coche toutes les bobines affichées par le filtre.'],
       en: ['Select all', 'In the tile views, a button ticks every spool the filter shows.'] }
   ];
@@ -818,6 +817,9 @@
     ['scale', 'studio'].forEach(k => {
       const box = document.getElementById('soon-' + k);
       box.textContent = '';
+      // A group with nothing to come is hidden with its heading.
+      box.hidden = !SOON[k].length;
+      if (box.previousElementSibling) box.previousElementSibling.hidden = !SOON[k].length;
       SOON[k].forEach(f => {
         const c = document.createElement('div'); c.className = 'card';
         const h = document.createElement('h3'); h.textContent = f[lang][0];
