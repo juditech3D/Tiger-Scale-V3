@@ -320,6 +320,13 @@ write is checked before the first one is written, and a failure answers `"ok":fa
 `"error"`. The `atr` is the one an ACR122U reports for that chip family, which is what Studio
 tells NTAG from MIFARE Classic by.
 
+A Bambu Lab spool has a chip on each flange, and Tiger Studio saves or links it only once both
+are read (two UIDs, the same tray UID). When one reader holds a Bambu Lab chip and the other
+sees nothing for 2 s, the TigerPOD screen says "Bambu Lab: 1 of 2 chips read" and offers
+**RFID Auto**, which opens the RFID screen: its Auto finds the power level at which the weaker
+reader sees the far flange (a level set too low leaves it deaf). Closing that screen returns to
+the TigerPOD.
+
 ## Coverage: where each value lives
 
 | What you want | `/api/status` | WebSocket | Firestore |

@@ -43,3 +43,12 @@ log lives in git history and the synthesised entry lives in the changelog.
   alert) and gains a "What this firmware adds or changes" section: the fork's
   base version, its own installer and releases, tested on the -3.5 only, and the
   tools and fixes it adds over the official v3.13.0.
+
+## Added
+
+- TigerPOD: when one reader holds a Bambu Lab chip and the other sees nothing for 2 s, a
+  "Bambu Lab: 1 of 2 chips read" bar appears over the hint with an **RFID Auto** button that
+  opens the RFID screen (where Auto picks the power level) and comes back to the TigerPOD.
+  Tiger Studio refuses to save a Bambu Lab spool until both of its chips are read; this tells
+  the user at the scale what to do. `TigerTagSplashESP32.ino` (`runTigerPod`: `halfBar`,
+  `POD_RFID`), `i18n.h` (`I18N_POD_BAMBU_HALF`, 11 languages), `docs/API.md` (TigerPOD socket).

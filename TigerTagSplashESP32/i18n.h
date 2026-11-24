@@ -221,6 +221,7 @@ enum LangKey : uint8_t {
     I18N_POD_HINT,
     I18N_TOOLS_SHOWN,
     I18N_TOOLS_ALWAYS,
+    I18N_POD_BAMBU_HALF,
     I18N_COUNT,
 };
 
@@ -419,6 +420,7 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_HINT        */ "Open Tiger Studio on this network, signed in to the scale's account",
         /* TOOLS_SHOWN     */ "Shown tools",
         /* TOOLS_ALWAYS    */ "Always on the menu",
+        /* POD_BAMBU_HALF  */ "Bambu Lab: 1 of 2 chips read",
     },
     // PT (Brazilian Portuguese — Studio's "pt")
     {
@@ -611,6 +613,7 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_HINT        */ "Abra o Tiger Studio nesta rede, na conta da balança",
         /* TOOLS_SHOWN     */ "Ferramentas exibidas",
         /* TOOLS_ALWAYS    */ "Sempre no menu",
+        /* POD_BAMBU_HALF  */ "Bambu Lab: 1 de 2 chips lido",
     },
     // FR
     {
@@ -803,6 +806,7 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_HINT        */ "Ouvrez Tiger Studio sur ce réseau, avec le compte de la balance",
         /* TOOLS_SHOWN     */ "Outils affichés",
         /* TOOLS_ALWAYS    */ "Toujours dans le menu",
+        /* POD_BAMBU_HALF  */ "Bambu Lab : 1 puce sur 2 lue",
     },
     // ES
     {
@@ -995,6 +999,7 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_HINT        */ "Abre Tiger Studio en esta red, con la cuenta de la báscula",
         /* TOOLS_SHOWN     */ "Herramientas visibles",
         /* TOOLS_ALWAYS    */ "Siempre en el menú",
+        /* POD_BAMBU_HALF  */ "Bambu Lab: 1 de 2 chips leído",
     },
     // DE
     {
@@ -1187,6 +1192,7 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_HINT        */ "Tiger Studio in diesem Netz mit dem Konto der Waage öffnen",
         /* TOOLS_SHOWN     */ "Angezeigte Werkzeuge",
         /* TOOLS_ALWAYS    */ "Immer im Menü",
+        /* POD_BAMBU_HALF  */ "Bambu Lab: 1 von 2 Chips gelesen",
     },
     // ZH (Han characters, not pinyin)
     // The glyphs come from a generated subset font — scripts/make-cjk-font.sh —
@@ -1385,6 +1391,7 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_HINT        */ "在同一网络中用此秤的账户打开 Tiger Studio",
         /* TOOLS_SHOWN     */ "显示的工具",
         /* TOOLS_ALWAYS    */ "始终在菜单中",
+        /* POD_BAMBU_HALF  */ "Bambu Lab: 已读取 2 个芯片中的 1 个",
     },
     // IT
     {
@@ -1577,6 +1584,7 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_HINT        */ "Apri Tiger Studio su questa rete, con l'account della bilancia",
         /* TOOLS_SHOWN     */ "Strumenti visibili",
         /* TOOLS_ALWAYS    */ "Sempre nel menu",
+        /* POD_BAMBU_HALF  */ "Bambu Lab: 1 chip su 2 letto",
     },
     // PL
     {
@@ -1769,6 +1777,7 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_HINT        */ "Otwórz Tiger Studio w tej sieci, na koncie wagi",
         /* TOOLS_SHOWN     */ "Widoczne narzędzia",
         /* TOOLS_ALWAYS    */ "Zawsze w menu",
+        /* POD_BAMBU_HALF  */ "Bambu Lab: odczytano 1 z 2 chipów",
     },
     // PT-PT (European Portuguese — Studio's "pt-pt")
     {
@@ -1961,6 +1970,7 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_HINT        */ "Abra o Tiger Studio nesta rede, com a conta da balança",
         /* TOOLS_SHOWN     */ "Ferramentas mostradas",
         /* TOOLS_ALWAYS    */ "Sempre no menu",
+        /* POD_BAMBU_HALF  */ "Bambu Lab: 1 de 2 chips lido",
     },
     // RU (Russian — Studio's "ru")
     {
@@ -2153,6 +2163,7 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_HINT        */ "Откройте Tiger Studio в этой сети под аккаунтом весов",
         /* TOOLS_SHOWN     */ "Показанные инструменты",
         /* TOOLS_ALWAYS    */ "Всегда в меню",
+        /* POD_BAMBU_HALF  */ "Bambu Lab: прочитан 1 чип из 2",
     },
     // NL (Dutch — Studio's "nl")
     {
@@ -2345,6 +2356,7 @@ static const char* const kStrings[NUM_LANGS][I18N_COUNT] = {
         /* POD_HINT        */ "Open Tiger Studio op dit netwerk, met het account van de weegschaal",
         /* TOOLS_SHOWN     */ "Getoonde tools",
         /* TOOLS_ALWAYS    */ "Altijd in het menu",
+        /* POD_BAMBU_HALF  */ "Bambu Lab: 1 van 2 chips gelezen",
     },
 };
 
