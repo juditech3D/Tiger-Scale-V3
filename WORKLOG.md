@@ -18,28 +18,3 @@ log lives in git history and the synthesised entry lives in the changelog.
 
 ---
 
-### Fixed
-
-- The Pages deployment no longer fails on an anonymous GitHub API rate limit:
-  `scripts/fetch-published-site.py` and `scripts/verify-published-site.py` send
-  the job's `GITHUB_TOKEN` to api.github.com (and only there) when it is set,
-  and `.github/workflows/pages.yml` sets it. v3.13.0-mt.6's first deployment
-  failed on "cannot read the latest release (HTTP 403)".
-- `README.md`: the install button and the `git clone` command point to this
-  fork (juditech3d.github.io / juditech3D) instead of the official repository.
-
-### Changed
-
-- `web-installer/index.html`: the heat press memo spotlight becomes a tour of the published tools (`#apercu`): one slide per entry of `TOOLS`, its bullets from `TOOL_HELP`, swipeable, arrows and dots, advancing every 30 s (stops on interaction, never with reduced motion). Keys `tour_*` replace `pr_*`.
-- `web-installer/index.html`: new "Already in Tiger Studio Fork" section (`STUDIO_HAS`, keys `st_*`) listing what fork.1-fork.4 ship, with a download button; the Studio items already released leave "Coming soon", which keeps only the macOS build.
-- Unofficial-fork warning made unmissable: `README.md` opens with a full
-  caution (not published or supported by the TigerTag team, features offered
-  upstream may never be merged, problems go to this fork's issues, no
-  liability) and its title becomes "Tiger Multi-tools"; `web-installer/index.html`
-  gains a warning strip above the header, an "Unofficial fork" badge beside the
-  name, the same five-point warning under the hero (keys `strip*`, `badge`,
-  `dis_*`, `foot_0`, replacing `notice`) and "(fork non officiel)" in the title.
-- `README.md` opens with an "Unofficial alternative firmware" warning (GitHub
-  alert) and gains a "What this firmware adds or changes" section: the fork's
-  base version, its own installer and releases, tested on the -3.5 only, and the
-  tools and fixes it adds over the official v3.13.0.

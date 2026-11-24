@@ -217,9 +217,10 @@ scale (Settings > LAN).
 - **No stream while live view is off**, while the scale has no WiFi, or while
   its own pairing screen is up; `lan_url` being null covers the first two.
 - **A sleeping screen is black, and the frame says so faithfully.** When
-  `power_state` is `"screen_off"`, first `POST {lan_url}/tap?c={code}&x=240&y=160`:
-  on a dark screen a press only wakes it and is swallowed, exactly as a finger's
-  would be, so it opens nothing. Read the frame about a second and a half later.
+  `power_state` is `"screen_off"`, first `POST {lan_url}/wake?c={code}`: it
+  lights the screen and presses nothing. Do not wake it with a tap: `power_state`
+  can be up to one beat old, and a tap on a screen that is already lit presses
+  whatever is under it. Read the frame about a second and a half later.
   The scale goes back to sleep on its own after its usual delay.
 
 The stream is a sequence of messages, little-endian, the first byte giving the
@@ -341,7 +342,7 @@ Self-contained; paste it as-is.
 > for the next heartbeat); otherwise read messages until the first
 > `FRAME_END` (byte `4`), decode the bands into a 480x320 image and close the
 > connection. If `power_state` is `"screen_off"` the screen is black: first
-> `POST {lan_url}/tap?c={lan_access_code}&x=240&y=160`, which only wakes it, and
+> `POST {lan_url}/wake?c={lan_access_code}`, which only wakes it, and
 > read the frame about 1.5 s later. The scale serves two viewers at most, so
 > never hold it open. The
 > format is in the "LAN live view" section of TELEMETRY.md. When `lan_live` is

@@ -20,29 +20,29 @@
 //   FORWARD DECLARATIONS                                   498-  808
 //   WEIGHT ROUNDING                                        809-  841
 //   GLOBAL OBJECTS                                         842- 1891
-//   CONFIGURATION VARIABLES                               1892- 2325
-//   OLED DISPLAY                                          2326- 3109
-//   CLOUD PARSING                                         3110- 3124
-//   WIFI SETUP                                            3125-10873
-//   LITTLEFS                                             10874-11173
-//   FIREBASE AUTHENTICATION                              11174-12856
-//   WEBSOCKET                                            12857-12883
-//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12884-13018
-//   UNIFIED WS FRAME BUILDER                             13019-13143
-//   WEIGHT FILTER HELPERS                                13144-13158
-//   POST-SEND STATE RESET (shared by all send paths)     13159-13179
-//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13180-13283
-//   WEB SERVER                                           13284-14412
-//   CLOUD COMMUNICATION                                  14413-14595
-//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14596-15103
-//   mDNS                                                 15104-15141
-//   SCALE                                                15142-15312
-//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15313-15445
-//   RFID                                                 15446-16528
-//   OTA — Over-the-air firmware + filesystem update    16529-17208
-//   LVGL bridge + main weigh screen                      17209-18172
-//   Remote live view: the screen out, taps back in       18173-19022
-//   SETUP & LOOP                                         19023-20311
+//   CONFIGURATION VARIABLES                               1892- 2330
+//   OLED DISPLAY                                          2331- 3120
+//   CLOUD PARSING                                         3121- 3135
+//   WIFI SETUP                                            3136-10898
+//   LITTLEFS                                             10899-11198
+//   FIREBASE AUTHENTICATION                              11199-12881
+//   WEBSOCKET                                            12882-12908
+//   CLOUD WORKER TASK  (non-blocking Firestore on core 0) 12909-13047
+//   UNIFIED WS FRAME BUILDER                             13048-13172
+//   WEIGHT FILTER HELPERS                                13173-13187
+//   POST-SEND STATE RESET (shared by all send paths)     13188-13208
+//   SHARED WEIGHT PUSH HANDLER (used by /api/weight and /api/push-weight) 13209-13312
+//   WEB SERVER                                           13313-14441
+//   CLOUD COMMUNICATION                                  14442-14624
+//   WEIGH WORKFLOW  (IDLE → SCANNING → STABLE_WAIT → SENDING) 14625-15132
+//   mDNS                                                 15133-15170
+//   SCALE                                                15171-15341
+//   ES8311 codec beep (I2S slave mode, Wire I2C @ 0x18)  15342-15474
+//   RFID                                                 15475-16557
+//   OTA — Over-the-air firmware + filesystem update    16558-17237
+//   LVGL bridge + main weigh screen                      17238-18201
+//   Remote live view: the screen out, taps back in       18202-19060
+//   SETUP & LOOP                                         19061-20359
 //
 //   To regenerate:  bash scripts/update_toc.sh
 // --- TOC END -----------------------------------------------
@@ -463,7 +463,7 @@ const char* TIGERTAG_FIREBASE_WEB_API_KEY = "AIzaSyCkxPTs_Cv0KVLqsZj-UKWWqIY0Otf
 
 // Embedded build identity — exposed via /api/status and the heartbeat so the
 // app/Studio can compare against the latest published version.json.
-#define TIGERSCALE_FW_VERSION  "3.13.0-mt.6"
+#define TIGERSCALE_FW_VERSION  "3.13.0-mt.7"
 
 // Which board this binary was built for, as it appears on the silkscreen. The
 // published manifest keys its per-board firmware entries by exactly this
@@ -2321,6 +2321,11 @@ OledState currentOledState    = OLED_STATE_IDLE;
 uint32_t  oledStateChangeMs   = 0;
 const uint32_t OLED_MESSAGE_DURATION_MS = 2000;
 static uint32_t gLastActivityMs          = 0; // reset on touch/RFID; drives 5-min screensaver
+// Set by GET /wake on the live port (Studio's "Wake" button). Lights a dark
+// screen and presses nothing: unlike an injected tap, it cannot land on a
+// button when the screen turns out to be on already. Cleared on every sleep
+// and wake, so a stale request never cuts the next sleep short.
+static volatile bool gRemoteWakeRequested = false;
 
 // ============================================================================
 // §7 — OLED DISPLAY
@@ -2390,6 +2395,7 @@ static void runScreensaver() {
     gScreenOff = true;
     if (WiFi.isConnected()) { gLastHeartbeatScheduleMs = millis(); gHeartbeatForce = true; gHeartbeatPending = true; }
     { int16_t tx, ty; while (tsRead(tx, ty)) delay(10); } // drain any lingering touch
+    gRemoteWakeRequested = false;
 
     gfx->fillScreen(0x0000);
     gfx->flush();
@@ -2403,6 +2409,10 @@ static void runScreensaver() {
               Serial.println("[SS] wake: touch"); break; } }
         if (fabs(readWeight() - sleepW) > SS_WAKE_DELTA_G) {
             Serial.println("[SS] wake: weight change");
+            break;
+        }
+        if (gRemoteWakeRequested) {
+            Serial.println("[SS] wake: remote");
             break;
         }
 
@@ -2428,6 +2438,7 @@ static void runScreensaver() {
         delay(30);
     }
     gScreenOff = false;
+    gRemoteWakeRequested = false;
     if (WiFi.isConnected()) { gLastHeartbeatScheduleMs = millis(); gHeartbeatForce = true; gHeartbeatPending = true; }
     applyBrightness(gBrightness);
     Serial.println("[SS] Screen wake");
@@ -7737,6 +7748,7 @@ static void lvglDrainPress(uint32_t maxMs) {
 //   toolWake() -- wake now and restart the countdown (a chip put on TigerPOD).
 static void otaScheduleCheck();
 static bool otaPromptIfDue();
+static void bootServicesTick();
 
 static lv_obj_t *gToolSleepPanel = nullptr;
 static volatile bool gToolSleepTapped = false;
@@ -7754,6 +7766,7 @@ static void toolWake() {
     gToolSleepPanel = nullptr;
     gToolSleepTapped = false;
     gScreenOff = false;
+    gRemoteWakeRequested = false;
     if (WiFi.isConnected()) { gLastHeartbeatScheduleMs = millis(); gHeartbeatForce = true; gHeartbeatPending = true; }
     lv_timer_handler();           // repaint under the panel before the light comes back
     applyBrightness(gBrightness);
@@ -7765,8 +7778,19 @@ static void toolSleepTick(bool allowed, float grams) {
     // where the background update check used to live alone, so a scale left
     // on the start menu never learned there was an update.
     otaScheduleCheck();
+    // The same goes for the heartbeat and the boot services: loop() is where
+    // they live, so a scale left in a tool (the start menu included) sent the
+    // beats of its transitions and then nothing -- or, straight after a boot,
+    // nothing at all, with no web server either. Studio counted it offline
+    // while it sat there, switched on, on the network.
+    pollBatteryState();
+    if (gBattery.vbusChanged) {
+        gBattery.vbusChanged = false;
+        if (WiFi.isConnected()) { gLastHeartbeatScheduleMs = millis(); gHeartbeatForce = true; gHeartbeatPending = true; }
+    }
+    bootServicesTick();
     if (gToolSleepPanel != nullptr) {
-        if (!allowed || gToolSleepTapped) { toolWake(); return; }
+        if (!allowed || gToolSleepTapped || gRemoteWakeRequested) { toolWake(); return; }
         if (!isnan(grams)) {
             if (isnan(gToolSleepGrams)) gToolSleepGrams = grams;
             else if (fabs(grams - gToolSleepGrams) > 10.0f) {
@@ -7792,6 +7816,7 @@ static void toolSleepTick(bool allowed, float grams) {
     lv_obj_clear_flag(gToolSleepPanel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(gToolSleepPanel, toolSleepPanelCb, LV_EVENT_RELEASED, nullptr);
     gToolSleepTapped = false;
+    gRemoteWakeRequested = false;
     gToolSleepGrams = grams;
     ledcWrite(LCD_BL, 0);
     lv_timer_handler();
@@ -12947,6 +12972,10 @@ static void cloudWorkerTask(void* /*param*/) {
         }
         if (gHeartbeatPending) {
             gHeartbeatPending = false;
+            // The 30-min token tick lives in loop(), which the screensaver and
+            // every tool block: past an hour there the beat went out with an
+            // expired token and was refused. A no-op while the token is fresh.
+            ensureFirebaseToken();
             sendScaleHeartbeat();
         }
         if (gOtaPollPending) {
@@ -18666,6 +18695,15 @@ static bool liveHandleRequest(int fd) {
         liveSend(fd, LIVE_204, strlen(LIVE_204));
         return true;
     }
+    // Wake the screen without touching it. Dark: the sleep loop that owns it
+    // lights it. Already on: restart the sleep countdown, press nothing.
+    if (!strcmp(path, "/wake")) {
+        if (!liveCodeOk(query)) { liveSend(fd, LIVE_403, strlen(LIVE_403)); return true; }
+        if (gScreenOff) gRemoteWakeRequested = true;
+        else            gLastActivityMs = millis();
+        liveSend(fd, LIVE_204, strlen(LIVE_204));
+        return true;
+    }
     // Pretty entry: the six-character code as the path — /J6fxda — which is
     // what the LAN screen prints. The page itself is served here (no redirect
     // hop, the URL stays as typed); its JS reads the code from the path. The
@@ -19257,6 +19295,77 @@ static bool otaPromptIfDue() {
     return true;
 }
 
+// Boot services and the cloud schedule: the async server, the background
+// tasks, the live view, the token tick, the heartbeat and the command poll.
+// loop() runs this on every pass; toolSleepTick() runs it too, because the
+// start menu opens on loop()'s first pass, before any of it had started, and
+// every tool blocks loop(). A scale rebooted and left on the start menu had
+// no web server, no live view and no cloud worker, so not one heartbeat.
+static void bootServicesTick() {
+    if (ENABLE_HTTP_SERVER && gWebServerStartPending && !gWebServerStarted &&
+        !gWebServerStarting && millis() >= gCloudBootReadyAtMs) {
+        gWebServerStarting = true;
+        Serial.println("[HTTP] Starting server from main loop");
+        startWebServerNow();
+    }
+
+    // The boot deferrals are ceilings, not targets: they exist so a struggling
+    // boot never fights TLS for heap, not to make a healthy one wait. The
+    // moment WiFi has an IP, pull both gates close — a saved account then
+    // signs in right behind the connection instead of half a minute later.
+    static bool gBootGatesPulled = false;
+    if (!gBootGatesPulled && WiFi.isConnected()) {
+        gBootGatesPulled = true;
+        if (gCloudBootReadyAtMs    > millis() + 1000) gCloudBootReadyAtMs    = millis() + 1000;
+        if (gFirebaseBootReadyAtMs > millis() + 3000) gFirebaseBootReadyAtMs = millis() + 3000;
+    }
+
+    if (ENABLE_BACKGROUND_TASKS && !gBackgroundTasksStarted && millis() >= gCloudBootReadyAtMs) {
+        Serial.println("[BOOT] start cloudWorkerTask");
+        xTaskCreatePinnedToCore(cloudWorkerTask, "cloudWorker",
+                                20480, nullptr, 1, nullptr, 0);
+        Serial.println("[BOOT] start twinWorkerTask");
+        xTaskCreatePinnedToCore(twinWorkerTask, "twinWorker",
+                                12288, nullptr, 1, nullptr, 0);
+        gBackgroundTasksStarted = true;
+        Serial.println("[BOOT] background tasks started");
+        // Started once and left running; it idles on a 250 ms delay whenever
+        // the Settings -> LAN switch is off, so there is nothing to restart
+        // when that switch is flipped back on. See §LIVE.
+        liveStart();
+    }
+
+    // Defer cloud/Firebase startup until the boot sequence is fully settled.
+    if (ENABLE_FIREBASE_BACKGROUND && millis() >= gFirebaseBootReadyAtMs) {
+        // Renew the idToken every 30 minutes in the background so it is never
+        // stale. ensureFirebaseToken() is a no-op if the token is still fresh.
+        static uint32_t lastTokenRenew = 0;
+        // Signed in: renew every 30 min. NOT signed in: retry every 30 s —
+        // one failed first attempt used to leave the account disconnected
+        // until the next half-hour tick.
+        if (WiFi.isConnected() && isFirebaseConfigured()
+            && (lastTokenRenew == 0
+                || (millis() - lastTokenRenew) > (firebaseAuth ? 1800000UL : 30000UL))) {
+            bool firstBoot = (lastTokenRenew == 0);
+            lastTokenRenew = millis();
+            gTokenRenewPending   = true;
+            if (firstBoot) gFirestoreSyncNeeded = true;
+        }
+
+        // Firestore heartbeat every 30 seconds.
+        if (WiFi.isConnected() && (millis() - gLastHeartbeatScheduleMs) >= heartbeatIntervalMs()) {
+            gLastHeartbeatScheduleMs = millis();
+            gHeartbeatPending = true;
+        }
+
+        // OTA poll at the same cadence gate as normal operation.
+        if ((millis() - gLastCommandPollMs) >= OTA_COMMAND_POLL_MS) {
+            gLastCommandPollMs = millis();
+            gOtaPollPending = true;
+        }
+    }
+}
+
 void loop() {
 #if LVGL_TEST_MODE
     // Isolated hardware smoke test: only pump the LVGL timer, skip all normal
@@ -19359,38 +19468,7 @@ void loop() {
         lastBlink = millis();
     }
 
-    if (ENABLE_HTTP_SERVER && gWebServerStartPending && !gWebServerStarted &&
-        !gWebServerStarting && millis() >= gCloudBootReadyAtMs) {
-        gWebServerStarting = true;
-        Serial.println("[HTTP] Starting server from main loop");
-        startWebServerNow();
-    }
-
-    // The boot deferrals are ceilings, not targets: they exist so a struggling
-    // boot never fights TLS for heap, not to make a healthy one wait. The
-    // moment WiFi has an IP, pull both gates close — a saved account then
-    // signs in right behind the connection instead of half a minute later.
-    static bool gBootGatesPulled = false;
-    if (!gBootGatesPulled && WiFi.isConnected()) {
-        gBootGatesPulled = true;
-        if (gCloudBootReadyAtMs    > millis() + 1000) gCloudBootReadyAtMs    = millis() + 1000;
-        if (gFirebaseBootReadyAtMs > millis() + 3000) gFirebaseBootReadyAtMs = millis() + 3000;
-    }
-
-    if (ENABLE_BACKGROUND_TASKS && !gBackgroundTasksStarted && millis() >= gCloudBootReadyAtMs) {
-        Serial.println("[BOOT] start cloudWorkerTask");
-        xTaskCreatePinnedToCore(cloudWorkerTask, "cloudWorker",
-                                20480, nullptr, 1, nullptr, 0);
-        Serial.println("[BOOT] start twinWorkerTask");
-        xTaskCreatePinnedToCore(twinWorkerTask, "twinWorker",
-                                12288, nullptr, 1, nullptr, 0);
-        gBackgroundTasksStarted = true;
-        Serial.println("[BOOT] background tasks started");
-        // Started once and left running; it idles on a 250 ms delay whenever
-        // the Settings -> LAN switch is off, so there is nothing to restart
-        // when that switch is flipped back on. See §LIVE.
-        liveStart();
-    }
+    bootServicesTick();
 
     // Detect WiFi network change - clear credentials if WiFi SSID changed
     if (WiFi.isConnected()) {
@@ -19457,36 +19535,6 @@ void loop() {
                                       " firebase=" + String(firebaseAuth ? 1 : 0) +
                                       " readers=" + String(hwRfidCount));
         gIdleHeartbeatMs = millis() + 15000;
-    }
-
-    // Defer cloud/Firebase startup until the boot sequence is fully settled.
-    if (ENABLE_FIREBASE_BACKGROUND && millis() >= gFirebaseBootReadyAtMs) {
-        // Renew the idToken every 30 minutes in the background so it is never
-        // stale. ensureFirebaseToken() is a no-op if the token is still fresh.
-        static uint32_t lastTokenRenew = 0;
-        // Signed in: renew every 30 min. NOT signed in: retry every 30 s —
-        // one failed first attempt used to leave the account disconnected
-        // until the next half-hour tick.
-        if (WiFi.isConnected() && isFirebaseConfigured()
-            && (lastTokenRenew == 0
-                || (millis() - lastTokenRenew) > (firebaseAuth ? 1800000UL : 30000UL))) {
-            bool firstBoot = (lastTokenRenew == 0);
-            lastTokenRenew = millis();
-            gTokenRenewPending   = true;
-            if (firstBoot) gFirestoreSyncNeeded = true;
-        }
-
-        // Firestore heartbeat every 30 seconds.
-        if (WiFi.isConnected() && (millis() - gLastHeartbeatScheduleMs) >= heartbeatIntervalMs()) {
-            gLastHeartbeatScheduleMs = millis();
-            gHeartbeatPending = true;
-        }
-
-        // OTA poll at the same cadence gate as normal operation.
-        if ((millis() - gLastCommandPollMs) >= OTA_COMMAND_POLL_MS) {
-            gLastCommandPollMs = millis();
-            gOtaPollPending = true;
-        }
     }
 
     // Periodic TigerTag DB update check - every 24 h.
