@@ -23,8 +23,8 @@ window.TOOLS = [
     needs: {
       url: 'https://github.com/juditech3D/TigerTag-Studio-Manager/releases/latest',
       label: { fr: 'Télécharger ce Tiger Studio', en: 'Download this Tiger Studio' },
-      fr: 'Nécessite le Tiger Studio de ce fork (Windows) : le Studio officiel ne sait pas utiliser la balance comme TigerPOD.',
-      en: 'Needs this fork’s Tiger Studio (Windows): the official Studio cannot use the scale as a TigerPOD.'
+      fr: 'Nécessite le Tiger Studio de ce fork (Windows, Linux ou macOS) : le Studio officiel ne sait pas utiliser la balance comme TigerPOD.',
+      en: 'Needs this fork’s Tiger Studio (Windows, Linux or macOS): the official Studio cannot use the scale as a TigerPOD.'
     },
     name: { fr: 'TigerPOD', en: 'TigerPOD' },
     desc: {
